@@ -127,6 +127,13 @@ func (m *Monitor) checkDevice(dev *DeviceState) {
 			} else {
 				m.state.SetBlocked(dev.MAC, true)
 			}
+		} else if dev.Blocked && dev.Quota > 0 && dev.UsedMinutes < dev.Quota {
+			// 已阻断设备，但已用时长被手动调低了（加奖励），自动解封
+			log.Printf("[netquotad] %s(%s) 已用时长调整为 %d/%d，自动解封", dev.Name, dev.IP, dev.UsedMinutes, dev.Quota)
+			if err := NFUnblockDevice(dev.IP); err != nil {
+				log.Printf("[netquotad] 解封 %s 失败: %v", dev.IP, err)
+			}
+			m.state.SetBlocked(dev.MAC, false)
 		}
 	} else {
 		// 无流量，更新最后活跃时间

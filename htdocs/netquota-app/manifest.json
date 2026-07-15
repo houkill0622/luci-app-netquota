@@ -1,0 +1,25 @@
+{
+  "name": "网络时长管理",
+  "short_name": "时长管理",
+  "description": "管理家庭设备每日上网时长",
+  "start_url": "/netquota-app/",
+  "scope": "/netquota-app/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#2196F3",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/netquota-app/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/netquota-app/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

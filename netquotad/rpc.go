@@ -42,7 +42,19 @@ func (s *RPCServer) setupMux() *http.ServeMux {
 	mux.HandleFunc("/api/v1/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/reset", s.handleReset)
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
+	mux.HandleFunc("/api/v1/", s.handleCORS)
 	return mux
+}
+
+func (s *RPCServer) handleCORS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(204)
+		return
+	}
+	jsonError(w, "not found")
 }
 
 // Start 启动 RPC 服务（Unix Socket + 可选 TCP）
@@ -61,7 +73,7 @@ func (s *RPCServer) Start() error {
 
 	// 可选：启动 TCP 监听（供直接 HTTP 调用）
 	if s.httpPort > 0 {
-		addr := fmt.Sprintf("127.0.0.1:%d", s.httpPort)
+		addr := fmt.Sprintf("0.0.0.0:%d", s.httpPort)
 		tcpListener, err := net.Listen("tcp", addr)
 		if err != nil {
 			return fmt.Errorf("监听 TCP %s 失败: %w", addr, err)
@@ -239,11 +251,15 @@ func (s *RPCServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 func jsonResp(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	json.NewEncoder(w).Encode(data)
 }
 
 func jsonError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
