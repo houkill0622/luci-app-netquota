@@ -133,7 +133,16 @@ func (s *RPCServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 			// 原地更新，保留运行时状态
 			s.state.UpdateDevice(mac, req.Name, req.Quota, req.Mode, req.Enabled)
 			if req.Used != nil {
+				// 先检查调整前是否被阻断
+				wasBlocked := existing.Blocked
+				hasIP := existing.IP != ""
+				oldQuota := existing.Quota
 				s.state.SetUsedMinutes(mac, *req.Used)
+				// 如果之前是阻断状态，调整后配额>0且已用<配额，立即从 nftables 解封
+				if wasBlocked && oldQuota > 0 && *req.Used < oldQuota && hasIP {
+					log.Printf("[netquotad] 手动调整时长，立即解封 %s(%s)", existing.Name, existing.IP)
+					NFUnblockDevice(existing.IP)
+				}
 			}
 		} else {
 			name := mac
