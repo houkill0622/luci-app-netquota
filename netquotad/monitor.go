@@ -43,6 +43,7 @@ func (m *Monitor) Run(stop chan struct{}) {
 	// 首次同步
 	m.refreshConfig()
 	m.syncDeviceTracking()
+	m.syncBlockedState()
 
 	ticker := time.NewTicker(MonitorInterval * time.Second)
 	defer ticker.Stop()
@@ -187,6 +188,17 @@ func (m *Monitor) syncDeviceTracking() {
 	for _, dev := range devices {
 		if dev.IP != "" && dev.Enabled {
 			NFTrackDevice(dev.IP)
+		}
+	}
+}
+
+// syncBlockedState 同步阻断状态到 nftables（启动时确保一致性）
+func (m *Monitor) syncBlockedState() {
+	devices := m.state.GetAllDevices()
+	for _, dev := range devices {
+		if dev.Blocked && dev.IP != "" {
+			log.Printf("[netquotad] 同步阻断状态: %s(%s)", dev.Name, dev.IP)
+			NFBlockDevice(dev.IP)
 		}
 	}
 }
