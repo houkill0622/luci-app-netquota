@@ -1,0 +1,24 @@
+[Unit]
+Description=netquotad - 每日联网时长管理守护程序
+Documentation=https://github.com/hoskill/luci-app-netquota
+After=network.target nftables.service
+Wants=network.target nftables.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/netquotad -config /etc/netquotad/config.json -state /var/lib/netquotad -socket /var/run/netquotad.sock
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+# 安全设置
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
