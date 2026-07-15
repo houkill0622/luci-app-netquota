@@ -1,0 +1,65 @@
+#!/bin/sh /etc/rc.common
+# netquotad — 每日联网时长管理守护程序
+# Copyright (C) 2024 HOSKILL
+
+START=99
+STOP=10
+
+USE_PROCD=1
+
+PROG=/usr/bin/netquotad
+CLI=/usr/bin/netquotad-cli
+CONFIG=/etc/config/netquota
+STATE_DIR=/var/lib/netquotad
+SOCKET=/var/run/netquotad.sock
+
+start_service() {
+	# 确保状态目录存在
+	mkdir -p "$STATE_DIR"
+
+	# 创建默认配置
+	if [ ! -f "$CONFIG" ]; then
+		cat > "$CONFIG" <<-EOF
+# netquotad 配置
+# 设备每日联网时长管理
+
+config settings
+	option reset_hour '0'
+
+EOF
+	fi
+
+	procd_open_instance
+	procd_set_param command "$PROG" -config "$CONFIG" -state "$STATE_DIR" -socket "$SOCKET"
+	procd_set_param respawn 5 10 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	echo "netquotad: 服务已启动"
+}
+
+stop_service() {
+	# 清理 nftables 规则
+	/usr/bin/netquotad-cli reset 2>/dev/null || true
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "netquota"
+}
+
+EXTRA_COMMANDS="status"
+EXTRA_HELP="	status	查看服务状态"
+
+status() {
+	if [ -S "$SOCKET" ]; then
+		$CLI status 2>/dev/null || echo "netquotad: 运行中（无法获取状态）"
+	else
+		echo "netquotad: 未运行"
+	fi
+}

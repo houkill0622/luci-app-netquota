@@ -1,0 +1,10 @@
+{
+	"admin/services/netquota": {
+		"title": "网络时长管理",
+		"order": 80,
+		"action": {
+			"type": "view",
+			"path": "netquota/overview"
+		}
+	}
+}
