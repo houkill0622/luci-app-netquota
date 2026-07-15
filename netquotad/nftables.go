@@ -24,8 +24,12 @@ func NFTableInit() error {
 		fmt.Sprintf("nft add set inet %s %s '{ type ipv4_addr; flags timeout; }' 2>/dev/null; true", nftTableName, nftBlockSet),
 		fmt.Sprintf("nft add set inet %s %s '{ type ipv4_addr; }' 2>/dev/null; true", nftTableName, nftCountSet),
 		fmt.Sprintf("nft add chain inet %s %s '{ type filter hook forward priority -5; }' 2>/dev/null; true", nftTableName, nftChainName),
-		fmt.Sprintf("nft add rule inet %s %s ip saddr @%s counter accept 2>/dev/null; true", nftTableName, nftChainName, nftCountSet),
+		// 清空旧数据，确保启动时状态干净
+		fmt.Sprintf("nft flush set inet %s %s 2>/dev/null; true", nftTableName, nftBlockSet),
+		fmt.Sprintf("nft flush set inet %s %s 2>/dev/null; true", nftTableName, nftCountSet),
+		// ⚠️ 注意顺序：先 drop 阻断设备，再 accept 计数设备
 		fmt.Sprintf("nft add rule inet %s %s ip saddr @%s drop 2>/dev/null; true", nftTableName, nftChainName, nftBlockSet),
+		fmt.Sprintf("nft add rule inet %s %s ip saddr @%s counter accept 2>/dev/null; true", nftTableName, nftChainName, nftCountSet),
 	}
 
 	for i, cmd := range cmds {

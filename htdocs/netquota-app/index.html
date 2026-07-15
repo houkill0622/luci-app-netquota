@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/netquota-app/manifest.json">
+<link rel="apple-touch-icon" href="/netquota-app/icons/icon-192.png">
+<title>网络时长管理</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e; color: #eee; min-height: 100vh;
+}
+.header {
+  background: linear-gradient(135deg, #2196F3, #1565C0);
+  padding: 16px 20px; position: sticky; top: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.header .status-dot.online { background: #4CAF50; }
+.header .status-dot.offline { background: #f44336; }
+.stats {
+  display: flex; gap: 10px; padding: 16px; 
+}
+.stat-card {
+  flex: 1; background: rgba(255,255,255,0.08); border-radius: 12px;
+  padding: 14px 12px; text-align: center; backdrop-filter: blur(10px);
+}
+.stat-card .num { font-size: 28px; font-weight: 700; }
+.stat-card .label { font-size: 11px; color: #999; margin-top: 4px; }
+.section-title {
+  padding: 12px 16px 8px; font-size: 14px; font-weight: 600; color: #aaa;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.refresh-btn {
+  background: none; border: 1px solid #444; color: #aaa; 
+  padding: 4px 12px; border-radius: 12px; font-size: 12px; cursor: pointer;
+}
+.device-list { padding: 0 16px 80px; }
+.device-card {
+  background: rgba(255,255,255,0.06); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 10px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.device-left { flex: 1; min-width: 0; }
+.device-name { font-size: 15px; font-weight: 500; }
+.device-meta { font-size: 12px; color: #888; margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+.device-meta .tag {
+  background: rgba(255,255,255,0.08); padding: 1px 8px; border-radius: 8px;
+}
+.tag.online { color: #4CAF50; }
+.tag.offline { color: #999; }
+.tag.blocked { color: #f44336; font-weight: 600; }
+.device-right { text-align: right; flex-shrink: 0; margin-left: 12px; }
+.device-used { font-size: 13px; color: #bbb; }
+.device-remain { font-size: 11px; color: #888; }
+.device-remain.urgent { color: #f44336; font-weight: 600; }
+.device-actions {
+  display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+}
+.btn {
+  border: none; border-radius: 8px; padding: 6px 12px;
+  font-size: 12px; cursor: pointer; font-weight: 500;
+}
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+.btn-blue { background: #2196F3; color: #fff; }
+.btn-green { background: #4CAF50; color: #fff; }
+.btn-red { background: #f44336; color: #fff; }
+.btn-orange { background: #FF9800; color: #fff; }
+.btn-gray { background: rgba(255,255,255,0.1); color: #ccc; }
+.btn-outline { background: transparent; border: 1px solid #555; color: #ccc; }
+.empty-state {
+  text-align: center; padding: 48px 20px; color: #666;
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.loading { text-align: center; padding: 40px; color: #666; }
+.refreshing { opacity: 0.5; pointer-events: none; }
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 10px 20px; border-radius: 8px;
+  font-size: 13px; z-index: 100; display: none;
+  animation: fadeIn 0.3s;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+/* Dialog */
+.dialog-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; display: none;
+}
+.dialog {
+  background: #2a2a3e; border-radius: 16px; padding: 24px;
+  width: 100%; max-width: 340px; max-height: 80vh; overflow-y: auto;
+}
+.dialog h2 { font-size: 18px; margin-bottom: 16px; }
+.dialog label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; }
+.dialog input, .dialog select {
+  width: 100%; padding: 10px 12px; border: 1px solid #444;
+  background: rgba(255,255,255,0.06); color: #eee; border-radius: 8px;
+  font-size: 14px; margin-bottom: 12px;
+}
+.dialog input:read-only { opacity: 0.6; }
+.dialog .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+.dialog .btn-row .btn { flex: 1; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div><span class="status-dot" id="connDot"></span><span id="connText">连接中...</span></div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button class="btn btn-sm btn-outline" onclick="location.href='/cgi-bin/luci/admin/services/netquotad'">LuCI</button>
+    <h1>⏱ 时长管理</h1>
+  </div>
+</div>
+
+<div class="stats" id="stats">
+  <div class="stat-card"><div class="num" id="statTotal">-</div><div class="label">设备总数</div></div>
+  <div class="stat-card"><div class="num" id="statOnline">-</div><div class="label">在线</div></div>
+  <div class="stat-card"><div class="num" id="statBlocked">-</div><div class="label">已阻断</div></div>
+</div>
+
+<div class="section-title">
+  <span>设备列表</span>
+  <button class="refresh-btn" onclick="refresh()">🔄 刷新</button>
+</div>
+
+<div class="device-list" id="deviceList"><div class="loading">加载中...</div></div>
+
+<div class="dialog-overlay" id="dialogOverlay" onclick="closeDialog(event)">
+  <div class="dialog" id="dialogContent" onclick="event.stopPropagation()"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.protocol + '//' + location.hostname + ':9800/api/v1';
+let autoTimer = null;
+
+// ====== API calls ======
+async function api(path) {
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+async function apiPost(path, data) {
+  const r = await fetch(API + path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// ====== Toast ======
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 2500);
+}
+
+// ====== Dialog ======
+function openDialog(html) {
+  document.getElementById('dialogContent').innerHTML = html;
+  document.getElementById('dialogOverlay').style.display = 'flex';
+}
+
+function closeDialog(e) {
+  if (e && e.target !== document.getElementById('dialogOverlay')) return;
+  document.getElementById('dialogOverlay').style.display = 'none';
+}
+
+// ====== Edit device ======
+function editDevice(mac, name, quota, mode, used) {
+  openDialog(\`
+    <h2>✏️ 编辑设备</h2>
+    <label>MAC 地址</label>
+    <input value="\${mac}" readonly>
+    <label>设备名称</label>
+    <input id="edName" value="\${name}" placeholder="输入名称">
+    <label>每日配额（分钟，0=无限制）</label>
+    <input id="edQuota" type="number" value="\${quota}" min="0">
+    <label>计时模式</label>
+    <select id="edMode">
+      <option value="1"\${mode==1?' selected':''}>1 - 连网即计时</option>
+      <option value="2"\${mode==2?' selected':''}>2 - 有流量才计时</option>
+      <option value="3"\${mode==3?' selected':''}>3 - 智能模式</option>
+    </select>
+    <div style="border-top:1px solid #444;padding-top:12px;margin-top:8px">
+      <label>当前已用: <b>\${used} 分钟</b></label>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-green" onclick="adjustUsed('\${mac}',-5)">+5奖励</button>
+        <button class="btn btn-red" onclick="adjustUsed('\${mac}',5)">-5扣减</button>
+        <button class="btn btn-gray" onclick="adjustUsed('\${mac}',-9999)">重置</button>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn btn-gray" onclick="closeDialog()">取消</button>
+      <button class="btn btn-blue" onclick="saveEdit('\${mac}')">保存</button>
+    </div>
+  \`);
+}
+
+async function saveEdit(mac) {
+  const name = document.getElementById('edName').value.trim();
+  const quota = parseInt(document.getElementById('edQuota').value) || 0;
+  const mode = parseInt(document.getElementById('edMode').value) || 2;
+  if (!name) { toast('请输入设备名称'); return; }
+  try {
+    await apiPost('/devices', {mac, name, quota, mode});
+    closeDialog(); toast('✅ 已保存'); refresh();
+  } catch(e) { toast('❌ 保存失败: ' + e.message); }
+}
+
+async function adjustUsed(mac, delta) {
+  const card = document.querySelector(\`[data-mac="\${mac}"]\`);
+  if (!card) return;
+  const used = parseInt(card.dataset.used || '0');
+  const newUsed = Math.max(0, used + delta);
+  try {
+    await apiPost('/devices', {mac, used: newUsed});
+    closeDialog(); toast('✅ 已调整'); refresh();
+  } catch(e) { toast('❌ 操作失败: ' + e.message); }
+}
+
+async function blockDevice(mac, ip) {
+  try {
+    await apiPost('/blocked', {action:'block', mac, ip});
+    toast('⛔ 已阻断'); refresh();
+  } catch(e) { toast('❌ 阻断失败: ' + e.message); }
+}
+
+async function unblockDevice(mac, ip) {
+  try {
+    await apiPost('/blocked', {action:'unblock', mac, ip});
+    toast('✅ 已解封'); refresh();
+  } catch(e) { toast('❌ 解封失败: ' + e.message); }
+}
+
+async function deleteDevice(mac) {
+  if (!confirm('确认删除此设备？')) return;
+  try {
+    await fetch(API + '/devices?mac=' + encodeURIComponent(mac), {method:'DELETE'});
+    toast('🗑 已删除'); refresh();
+  } catch(e) { toast('❌ 删除失败: ' + e.message); }
+}
+
+async function toggleBypass(mac, enable) {
+  try {
+    await apiPost('/bypass', {mac, bypass: enable});
+    toast(enable ? '⏭ 今日放行已开启' : '⏭ 今日放行已关闭');
+    refresh();
+  } catch(e) { toast('❌ 操作失败: ' + e.message); }
+}
+
+// ====== Main render ======
+async function refresh() {
+  const list = document.getElementById('deviceList');
+  list.classList.add('refreshing');
+  try {
+    const [statusRes, devicesRes] = await Promise.all([
+      api('/status'), api('/devices')
+    ]);
+    
+    document.getElementById('connDot').className = 'status-dot online';
+    document.getElementById('connText').textContent = '已连接';
+    
+    document.getElementById('statTotal').textContent = statusRes.total_devices ?? '-';
+    document.getElementById('statOnline').textContent = statusRes.online_devices ?? '-';
+    document.getElementById('statBlocked').textContent = statusRes.blocked_devices ?? '-';
+    
+    const devices = devicesRes.devices || [];
+    if (devices.length === 0) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">📱</div><p>暂无设备</p><p style="font-size:13px;color:#888;margin-top:8px">请先在 LuCI 界面添加设备</p></div>';
+      return;
+    }
+    
+    const now = Math.floor(Date.now() / 1000);
+    let html = '';
+    devices.forEach(d => {
+      const online = d.last_seen > 0 && (now - d.last_seen < 300);
+      const blocked = d.blocked;
+      const used = d.used || 0;
+      const quota = d.quota || 0;
+      const remain = quota > 0 ? Math.max(0, quota - used) : -1;
+      
+      let statusTag = online ? '<span class="tag online">● 在线</span>' : '<span class="tag offline">○ 离线</span>';
+      if (blocked) statusTag = '<span class="tag blocked">● 已阻断</span>';
+      if (d.bypass_today) statusTag += '<span class="tag" style="color:#FF9800;font-weight:600">⏭ 放行中</span>';
+      
+      let remainText = quota > 0 ? (remain + ' 分钟') : '无限制';
+      let remainCls = 'device-remain' + (remain <= 0 && quota > 0 ? ' urgent' : '');
+      
+      let actions = '';
+            if (blocked)
+              actions += `<button class="btn btn-sm btn-green" onclick="unblockDevice('${d.mac}','${d.ip||''}')">解封</button> `;
+            else if (d.ip)
+              actions += `<button class="btn btn-sm btn-red" onclick="blockDevice('${d.mac}','${d.ip}')">阻断</button> `;
+            if (d.bypass_today)
+              actions += `<button class="btn btn-sm btn-orange" onclick="toggleBypass('${d.mac}',false)">⏭ 放行中</button> `;
+            else
+              actions += `<button class="btn btn-sm btn-outline" onclick="toggleBypass('${d.mac}',true)">今日放行</button> `;
+            actions += `<button class="btn btn-sm btn-blue" onclick="editDevice('${d.mac}','${(d.name||'').replace(/'/g,"\\'")}',${quota},${d.mode||2},${used})">编辑</button>`;
+            actions += ` <button class="btn btn-sm btn-gray" onclick="deleteDevice('${d.mac}')">删除</button>`;
+      
+      html += \`<div class="device-card" data-mac="\${d.mac}" data-used="\${used}">
+        <div class="device-left">
+          <div class="device-name">\${d.name || d.mac}</div>
+          <div class="device-meta">
+            <span>\${d.mac.substring(0,17)}</span>
+            \${d.ip ? '<span>'+d.ip+'</span>' : ''}
+            \${statusTag}
+          </div>
+          <div class="device-actions">\${actions}</div>
+        </div>
+        <div class="device-right">
+          <div class="device-used">已用 \${used} 分钟</div>
+          <div class="\${remainCls}">剩余 \${remainText}</div>
+        </div>
+      </div>\`;
+    });
+    list.innerHTML = html;
+  } catch(e) {
+    document.getElementById('connDot').className = 'status-dot offline';
+    document.getElementById('connText').textContent = '连接失败';
+    list.innerHTML = \`<div class="empty-state"><div class="icon">🔌</div><p>无法连接路由器</p><p style="font-size:13px;color:#888;margin-top:8px">\${e.message}</p></div>\`;
+  } finally {
+    list.classList.remove('refreshing');
+  }
+}
+
+// ====== Auto refresh ======
+function startAuto() {
+  refresh();
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = setInterval(refresh, 15000);
+}
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/netquota-app/sw.js');
+}
+
+startAuto();
+</script>
+</body>
+</html>

@@ -128,6 +128,16 @@ func main() {
 	case "reset":
 		callPost(client, "/api/v1/reset", map[string]string{})
 
+	case "bypass":
+		if len(args) < 2 {
+			fatal("用法: netquotad-cli bypass <mac> on|off")
+		}
+		bypass := args[1] == "on" || args[1] == "true" || args[1] == "1"
+		callPost(client, "/api/v1/bypass", map[string]interface{}{
+			"mac":    args[0],
+			"bypass": bypass,
+		})
+
 	case "config":
 		callGet(client, "/api/v1/config")
 
@@ -151,6 +161,7 @@ func usage() {
   netquotad-cli unblock <mac> [ip]       解除阻断
   netquotad-cli scan                     扫描局域网设备
   netquotad-cli reset                    手动重置今日统计
+  netquotad-cli bypass <mac> on|off      今日放行/取消放行
   netquotad-cli config                   查看配置
 `)
 }

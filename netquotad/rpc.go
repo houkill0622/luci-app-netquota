@@ -41,8 +41,21 @@ func (s *RPCServer) setupMux() *http.ServeMux {
 	mux.HandleFunc("/api/v1/blocked", s.handleBlocked)
 	mux.HandleFunc("/api/v1/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/reset", s.handleReset)
+	mux.HandleFunc("/api/v1/bypass", s.handleBypass)
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
+	mux.HandleFunc("/api/v1/", s.handleCORS)
 	return mux
+}
+
+func (s *RPCServer) handleCORS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(204)
+		return
+	}
+	jsonError(w, "not found")
 }
 
 // Start 启动 RPC 服务（Unix Socket + 可选 TCP）
@@ -61,7 +74,7 @@ func (s *RPCServer) Start() error {
 
 	// 可选：启动 TCP 监听（供直接 HTTP 调用）
 	if s.httpPort > 0 {
-		addr := fmt.Sprintf("127.0.0.1:%d", s.httpPort)
+		addr := fmt.Sprintf("0.0.0.0:%d", s.httpPort)
 		tcpListener, err := net.Listen("tcp", addr)
 		if err != nil {
 			return fmt.Errorf("监听 TCP %s 失败: %w", addr, err)
@@ -121,7 +134,16 @@ func (s *RPCServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 			// 原地更新，保留运行时状态
 			s.state.UpdateDevice(mac, req.Name, req.Quota, req.Mode, req.Enabled)
 			if req.Used != nil {
+				// 先检查调整前是否被阻断
+				wasBlocked := existing.Blocked
+				hasIP := existing.IP != ""
+				oldQuota := existing.Quota
 				s.state.SetUsedMinutes(mac, *req.Used)
+				// 如果之前是阻断状态，调整后配额>0且已用<配额，立即从 nftables 解封
+				if wasBlocked && oldQuota > 0 && *req.Used < oldQuota && hasIP {
+					log.Printf("[netquotad] 手动调整时长，立即解封 %s(%s)", existing.Name, existing.IP)
+					NFUnblockDevice(existing.IP)
+				}
 			}
 		} else {
 			name := mac
@@ -186,6 +208,8 @@ func (s *RPCServer) handleBlocked(w http.ResponseWriter, r *http.Request) {
 		} else {
 			NFUnblockDevice(ip)
 			s.state.SetBlocked(strings.ToUpper(req.MAC), false)
+			// 解封同时重置已用时长，否则下个监控周期又会自动阻断
+			s.state.SetUsedMinutes(strings.ToUpper(req.MAC), 0)
 			jsonResp(w, map[string]string{"status": "unblocked"})
 		}
 		s.state.Save()
@@ -206,6 +230,42 @@ func (s *RPCServer) handleScan(w http.ResponseWriter, r *http.Request) {
 func (s *RPCServer) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.monitor.resetDaily()
 	jsonResp(w, map[string]string{"status": "reset"})
+}
+
+// handleBypass 今日放行/取消放行
+func (s *RPCServer) handleBypass(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "仅支持 POST")
+		return
+	}
+	var req struct {
+		MAC    string `json:"mac"`
+		Bypass bool   `json:"bypass"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "无效请求")
+		return
+	}
+	mac := strings.ToUpper(req.MAC)
+	dev := s.state.GetDevice(mac)
+	if dev == nil {
+		jsonError(w, "设备不存在")
+		return
+	}
+
+	// 设置今日放行
+	s.state.SetBypassToday(mac, req.Bypass)
+	if req.Bypass {
+		// 如果设备被阻断，立即解封
+		if dev.Blocked && dev.IP != "" {
+			NFUnblockDevice(dev.IP)
+		}
+		log.Printf("[netquotad] %s(%s) 今日放行已开启", dev.Name, dev.IP)
+	} else {
+		log.Printf("[netquotad] %s(%s) 今日放行已关闭", dev.Name, dev.IP)
+	}
+	s.state.Save()
+	jsonResp(w, map[string]interface{}{"status": "ok", "bypass": req.Bypass})
 }
 
 // handleConfig 读写配置
@@ -239,11 +299,15 @@ func (s *RPCServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 func jsonResp(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	json.NewEncoder(w).Encode(data)
 }
 
 func jsonError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

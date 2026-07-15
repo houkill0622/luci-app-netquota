@@ -14,11 +14,12 @@ type DeviceState struct {
 	MAC          string `json:"mac"`
 	Name         string `json:"name"`
 	IP           string `json:"ip"`
-	Quota        int    `json:"quota"`    // 每日额度（分钟）
-	UsedMinutes  int    `json:"used"`     // 已用时长（分钟）
-	Blocked      bool   `json:"blocked"`  // 是否被阻断
-	LastSeen     int64  `json:"last_seen"` // 最后活跃时间戳
-	LastBytes    uint64 `json:"last_bytes"` // 上一次的流量计数
+	Quota        int    `json:"quota"`        // 每日额度（分钟）
+	UsedMinutes  int    `json:"used"`         // 已用时长（分钟）
+	Blocked      bool   `json:"blocked"`      // 是否被阻断
+	BypassToday  bool   `json:"bypass_today"` // 今日放行（跳过配额检查）
+	LastSeen     int64  `json:"last_seen"`    // 最后活跃时间戳
+	LastBytes    uint64 `json:"last_bytes"`   // 上一次的流量计数
 	Enabled      bool   `json:"enabled"`
 	Mode         int    `json:"mode"`
 }
@@ -183,6 +184,18 @@ func (sm *StateManager) SetUsedMinutes(mac string, used int) {
 	}
 }
 
+// SetBypassToday 设置今日放行状态
+func (sm *StateManager) SetBypassToday(mac string, bypass bool) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if d, ok := sm.devices[mac]; ok {
+		d.BypassToday = bypass
+		if bypass && d.Blocked {
+			d.Blocked = false
+		}
+	}
+}
+
 // RemoveDevice 移除设备
 func (sm *StateManager) RemoveDevice(mac string) {
 	sm.mu.Lock()
@@ -204,6 +217,7 @@ func (sm *StateManager) ResetDaily() {
 	for _, d := range sm.devices {
 		d.UsedMinutes = 0
 		d.Blocked = false
+		d.BypassToday = false
 		d.LastBytes = 0
 	}
 	sm.saveState()

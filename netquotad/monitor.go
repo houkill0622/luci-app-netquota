@@ -43,6 +43,7 @@ func (m *Monitor) Run(stop chan struct{}) {
 	// 首次同步
 	m.refreshConfig()
 	m.syncDeviceTracking()
+	m.syncBlockedState()
 
 	ticker := time.NewTicker(MonitorInterval * time.Second)
 	defer ticker.Stop()
@@ -92,6 +93,17 @@ func (m *Monitor) tick() {
 
 // checkDevice 检查单个设备的时长和流量
 func (m *Monitor) checkDevice(dev *DeviceState) {
+	// 已阻断的设备不计时（阻断后流量包被 nftables drop 了，不需要再计）
+	if dev.Blocked {
+		// 但依然要检查是否需要解封（手动调整了时长）
+		if dev.Quota > 0 && dev.UsedMinutes < dev.Quota {
+			log.Printf("[netquotad] %s(%s) 已用时长调整为 %d/%d，自动解封", dev.Name, dev.IP, dev.UsedMinutes, dev.Quota)
+			NFUnblockDevice(dev.IP)
+			m.state.SetBlocked(dev.MAC, false)
+		}
+		return
+	}
+
 	// 获取当前流量计数
 	_, bytes, err := NFGetCounter(dev.IP)
 	if err != nil {
@@ -119,8 +131,8 @@ func (m *Monitor) checkDevice(dev *DeviceState) {
 		m.state.UpdateLastSeen(dev.MAC)
 		m.state.IncrementUsed(dev.MAC)
 
-		// 检查是否达到配额
-		if dev.UsedMinutes+1 >= dev.Quota && !dev.Blocked {
+		// 检查是否达到配额（今日放行的设备跳过阻断）
+		if !dev.BypassToday && dev.UsedMinutes+1 >= dev.Quota {
 			log.Printf("[netquotad] %s(%s) 已达到 %d 分钟额度，阻断网络", dev.Name, dev.IP, dev.Quota)
 			if err := NFBlockDevice(dev.IP); err != nil {
 				log.Printf("[netquotad] 阻断失败: %v", err)
@@ -180,6 +192,17 @@ func (m *Monitor) syncDeviceTracking() {
 	for _, dev := range devices {
 		if dev.IP != "" && dev.Enabled {
 			NFTrackDevice(dev.IP)
+		}
+	}
+}
+
+// syncBlockedState 同步阻断状态到 nftables（启动时确保一致性）
+func (m *Monitor) syncBlockedState() {
+	devices := m.state.GetAllDevices()
+	for _, dev := range devices {
+		if dev.Blocked && dev.IP != "" {
+			log.Printf("[netquotad] 同步阻断状态: %s(%s)", dev.Name, dev.IP)
+			NFBlockDevice(dev.IP)
 		}
 	}
 }
