@@ -93,6 +93,17 @@ func (m *Monitor) tick() {
 
 // checkDevice 检查单个设备的时长和流量
 func (m *Monitor) checkDevice(dev *DeviceState) {
+	// 已阻断的设备不计时（阻断后流量包被 nftables drop 了，不需要再计）
+	if dev.Blocked {
+		// 但依然要检查是否需要解封（手动调整了时长）
+		if dev.Quota > 0 && dev.UsedMinutes < dev.Quota {
+			log.Printf("[netquotad] %s(%s) 已用时长调整为 %d/%d，自动解封", dev.Name, dev.IP, dev.UsedMinutes, dev.Quota)
+			NFUnblockDevice(dev.IP)
+			m.state.SetBlocked(dev.MAC, false)
+		}
+		return
+	}
+
 	// 获取当前流量计数
 	_, bytes, err := NFGetCounter(dev.IP)
 	if err != nil {
@@ -121,20 +132,13 @@ func (m *Monitor) checkDevice(dev *DeviceState) {
 		m.state.IncrementUsed(dev.MAC)
 
 		// 检查是否达到配额
-		if dev.UsedMinutes+1 >= dev.Quota && !dev.Blocked {
+		if dev.UsedMinutes+1 >= dev.Quota {
 			log.Printf("[netquotad] %s(%s) 已达到 %d 分钟额度，阻断网络", dev.Name, dev.IP, dev.Quota)
 			if err := NFBlockDevice(dev.IP); err != nil {
 				log.Printf("[netquotad] 阻断失败: %v", err)
 			} else {
 				m.state.SetBlocked(dev.MAC, true)
 			}
-		} else if dev.Blocked && dev.Quota > 0 && dev.UsedMinutes < dev.Quota {
-			// 已阻断设备，但已用时长被手动调低了（加奖励），自动解封
-			log.Printf("[netquotad] %s(%s) 已用时长调整为 %d/%d，自动解封", dev.Name, dev.IP, dev.UsedMinutes, dev.Quota)
-			if err := NFUnblockDevice(dev.IP); err != nil {
-				log.Printf("[netquotad] 解封 %s 失败: %v", dev.IP, err)
-			}
-			m.state.SetBlocked(dev.MAC, false)
 		}
 	} else {
 		// 无流量，更新最后活跃时间
