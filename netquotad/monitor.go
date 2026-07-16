@@ -198,12 +198,34 @@ func (m *Monitor) syncDeviceTracking() {
 }
 
 // syncBlockedState 同步阻断状态到 nftables（启动时确保一致性）
+// 修复：同时清理 nftables 中残留的已放行设备 IP，避免放行后仍被阻断
 func (m *Monitor) syncBlockedState() {
 	devices := m.state.GetAllDevices()
+
+	// 构建"应该阻断"的 IP 集合
+	shouldBlock := make(map[string]string) // ip -> name
 	for _, dev := range devices {
 		if dev.Blocked && dev.IP != "" {
-			log.Printf("[netquotad] 同步阻断状态: %s(%s)", dev.Name, dev.IP)
-			NFBlockDevice(dev.IP)
+			shouldBlock[dev.IP] = dev.Name
+		}
+	}
+
+	// 1. 添加缺失的阻断规则
+	for ip, name := range shouldBlock {
+		log.Printf("[netquotad] 同步阻断状态: %s(%s)", name, ip)
+		NFBlockDevice(ip)
+	}
+
+	// 2. 清理 nftables 中残留的已放行设备 IP
+	actualBlocked, err := NFListBlocked()
+	if err != nil {
+		log.Printf("[netquotad] 获取实际阻断列表失败: %v", err)
+		return
+	}
+	for _, ip := range actualBlocked {
+		if _, needed := shouldBlock[ip]; !needed {
+			log.Printf("[netquotad] 清理残留阻断: %s（已放行但 nftables 未清除）", ip)
+			NFUnblockDevice(ip)
 		}
 	}
 }
