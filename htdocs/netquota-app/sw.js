@@ -1,5 +1,5 @@
 // netquota-app Service Worker
-const CACHE = 'netquota-v1';
+const CACHE = 'netquota-v2';
 const ASSETS = [
   '/netquota-app/',
   '/netquota-app/index.html',

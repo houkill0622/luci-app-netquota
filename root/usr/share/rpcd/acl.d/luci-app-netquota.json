@@ -1,0 +1,23 @@
+{
+	"luci-app-netquota": {
+		"description": "Grant access to netquotad-cli",
+		"read": {
+			"file": {
+				"/usr/bin/netquotad-cli": [ "exec" ],
+				"/usr/bin/netquotad-cli *": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/usr/bin/netquotad-cli": [ "exec" ],
+				"/usr/bin/netquotad-cli *": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "exec" ]
+			}
+		}
+	}
+}

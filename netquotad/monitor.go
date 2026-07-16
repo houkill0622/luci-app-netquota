@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	TrafficThreshold    = 100 * 1024 // 流量阈值：100KB
+	TrafficThreshold    = 1 * 1024 // 流量阈值：1KB（过滤极低背景噪音）
 	MonitorInterval     = 60         // 监控间隔：60秒
 	ArpTablePath        = "/proc/net/arp"
 )
@@ -70,6 +70,8 @@ func (m *Monitor) tick() {
 	// 2. 刷新配置和设备IP
 	m.refreshConfig()
 	m.scanARP()
+	// 不再每个 tick 重建计数链（避免计数器归零）
+	// 仅在设备状态变化（新增/解封）时由 RPC 处理
 
 	// 3. 检查每个设备的流量和时长
 	devices := m.state.GetAllDevices()
@@ -94,13 +96,8 @@ func (m *Monitor) tick() {
 // checkDevice 检查单个设备的时长和流量
 func (m *Monitor) checkDevice(dev *DeviceState) {
 	// 已阻断的设备不计时（阻断后流量包被 nftables drop 了，不需要再计）
+	// 也不自动解封——手动阻断就是用户意图，不解封
 	if dev.Blocked {
-		// 但依然要检查是否需要解封（手动调整了时长）
-		if dev.Quota > 0 && dev.UsedMinutes < dev.Quota {
-			log.Printf("[netquotad] %s(%s) 已用时长调整为 %d/%d，自动解封", dev.Name, dev.IP, dev.UsedMinutes, dev.Quota)
-			NFUnblockDevice(dev.IP)
-			m.state.SetBlocked(dev.MAC, false)
-		}
 		return
 	}
 
@@ -186,13 +183,17 @@ func (m *Monitor) scanARP() {
 	}
 }
 
-// syncDeviceTracking 同步设备到 nftables 跟踪集合
+// syncDeviceTracking 同步设备到 nftables 计数链
 func (m *Monitor) syncDeviceTracking() {
+	var ips []string
 	devices := m.state.GetAllDevices()
 	for _, dev := range devices {
-		if dev.IP != "" && dev.Enabled {
-			NFTrackDevice(dev.IP)
+		if dev.IP != "" && dev.Enabled && !dev.Blocked {
+			ips = append(ips, dev.IP)
 		}
+	}
+	if len(ips) > 0 {
+		NFResetCountChain(ips)
 	}
 }
 

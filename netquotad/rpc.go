@@ -210,6 +210,10 @@ func (s *RPCServer) handleBlocked(w http.ResponseWriter, r *http.Request) {
 			s.state.SetBlocked(strings.ToUpper(req.MAC), false)
 			// 解封同时重置已用时长，否则下个监控周期又会自动阻断
 			s.state.SetUsedMinutes(strings.ToUpper(req.MAC), 0)
+			// 重新加入计数链（解封后需要继续计时）
+			if ip != "" {
+				NFTrackDevice(ip)
+			}
 			jsonResp(w, map[string]string{"status": "unblocked"})
 		}
 		s.state.Save()
