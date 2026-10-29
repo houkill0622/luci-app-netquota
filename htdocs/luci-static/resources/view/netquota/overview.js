@@ -195,14 +195,14 @@ function rebuildTable(devices) {
 		} else { remainTxt = '-'; }
 
 		var btns = '';
+		if (d.reward_until && d.reward_until > Date.now() / 1000) {
+			var rm = Math.ceil((d.reward_until - Date.now() / 1000) / 60);
+			btns += '<span style="color:#FF9800;font-weight:bold;white-space:nowrap">🎁 剩 ' + rm + ' 分钟</span> ';
+			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaRewardEnd(\'' + d.mac + '\')">结束奖励</button> ';
+		} else {
+			btns += '<button class="btn cbi-button cbi-button-apply" style="font-size:0.85em;background:#4CAF50;color:#fff" onclick="netquotaRewardDlg(\'' + d.mac + '\')">🎁 奖励</button> ';
+		}
 		if (d.blocked) {
-			if (d.reward_until && d.reward_until > Date.now() / 1000) {
-				var rm = Math.ceil((d.reward_until - Date.now() / 1000) / 60);
-				btns += '<span style="color:#FF9800;font-weight:bold;white-space:nowrap">🎁 剩 ' + rm + ' 分钟</span> ';
-				btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaRewardEnd(\'' + d.mac + '\')">结束奖励</button> ';
-			} else {
-				btns += '<button class="btn cbi-button cbi-button-apply" style="font-size:0.85em;background:#4CAF50;color:#fff" onclick="netquotaRewardDlg(\'' + d.mac + '\')">🎁 奖励</button> ';
-			}
 			btns += '<button class="btn cbi-button cbi-button-action" style="font-size:0.85em" onclick="netquotaAction(\'unblock\',\'' + d.mac + '\',\'' + (d.ip || '') + '\')">解封</button> ';
 		} else if (d.quota > 0 && d.ip) {
 			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaAction(\'block\',\'' + d.mac + '\',\'' + d.ip + '\')">阻断</button> ';
@@ -270,8 +270,11 @@ window.netquotaRewardDlg = function(mac) {
 		});
 	};
 
+	var hint = (dev && dev.blocked)
+		? '临时放行一段时间，倒计时结束自动恢复阻断（不消耗今日配额）'
+		: '⚠ 该设备当前未被限制。可预设奖励时间：之后被阻断时，奖励期内会自动放行，倒计时结束自动恢复阻断。';
 	ui.showModal('🎁 奖励时间 — ' + devName, [
-		E('p', { style: 'color:#666;margin:0 0 6px' }, '临时放行一段时间，倒计时结束自动恢复阻断（不消耗今日配额）'),
+		E('p', { style: 'color:#666;margin:0 0 6px' }, hint),
 		E('div', { style: 'display:flex;flex-wrap:wrap;justify-content:center' },
 			[mkBtn(5), mkBtn(10), mkBtn(20), mkBtn(30)]),
 		E('div', { style: 'margin-top:4px' }, [input]),
