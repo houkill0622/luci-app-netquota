@@ -20,8 +20,8 @@ const (
 type DeviceConfig struct {
 	MAC     string `json:"mac"`
 	Name    string `json:"name"`
-	Quota   int    `json:"quota"`   // 每日额度（分钟）, 0=无限制
-	Mode    int    `json:"mode"`    // 1=连网即计时, 2=有流量才计时, 3=智能模式
+	Quota   int    `json:"quota"` // 每日额度（分钟）, 0=无限制
+	Mode    int    `json:"mode"`  // 1=连网即计时, 2=有流量才计时, 3=智能模式
 	Enabled bool   `json:"enabled"`
 }
 

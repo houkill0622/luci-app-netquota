@@ -76,7 +76,7 @@ return view.extend({
 			merged.push({
 				mac: c.mac, name: c.name || s.name || '', ip: s.ip || '',
 				quota: c.quota || 0, mode: c.mode || 2, enabled: c.enabled,
-				used: s.used || 0, blocked: s.blocked || false, last_seen: s.last_seen || 0,
+				used: s.used || 0, blocked: s.blocked || false, reward_until: s.reward_until || 0, last_seen: s.last_seen || 0,
 				online: s.last_seen && (Date.now() / 1000 - s.last_seen < 300)
 			});
 		});
@@ -154,7 +154,7 @@ return view.extend({
 				nd.forEach(function(d) { devMap[d.mac] = d; });
 				_devs.forEach(function(dev) {
 					var s = devMap[dev.mac];
-					if (s) { dev.ip = s.ip || ''; dev.used = s.used || 0; dev.blocked = s.blocked || false; dev.last_seen = s.last_seen || 0; dev.online = s.last_seen && (Date.now() / 1000 - s.last_seen < 300); }
+					if (s) { dev.ip = s.ip || ''; dev.used = s.used || 0; dev.blocked = s.blocked || false; dev.reward_until = s.reward_until || 0; dev.last_seen = s.last_seen || 0; dev.online = s.last_seen && (Date.now() / 1000 - s.last_seen < 300); }
 				});
 				rebuildTable(_devs);
 			});
@@ -196,6 +196,13 @@ function rebuildTable(devices) {
 
 		var btns = '';
 		if (d.blocked) {
+			if (d.reward_until && d.reward_until > Date.now() / 1000) {
+				var rm = Math.ceil((d.reward_until - Date.now() / 1000) / 60);
+				btns += '<span style="color:#FF9800;font-weight:bold;white-space:nowrap">🎁 剩 ' + rm + ' 分钟</span> ';
+				btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaRewardEnd(\'' + d.mac + '\')">结束奖励</button> ';
+			} else {
+				btns += '<button class="btn cbi-button cbi-button-apply" style="font-size:0.85em;background:#4CAF50;color:#fff" onclick="netquotaRewardDlg(\'' + d.mac + '\')">🎁 奖励</button> ';
+			}
 			btns += '<button class="btn cbi-button cbi-button-action" style="font-size:0.85em" onclick="netquotaAction(\'unblock\',\'' + d.mac + '\',\'' + (d.ip || '') + '\')">解封</button> ';
 		} else if (d.quota > 0 && d.ip) {
 			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaAction(\'block\',\'' + d.mac + '\',\'' + d.ip + '\')">阻断</button> ';
@@ -226,6 +233,61 @@ window.netquotaAction = function(action, mac, ip) {
 		location.reload();
 	}).catch(function(err) {
 		ui.addNotification(null, ui.createNotification('操作失败: ' + (err.message || err), 'error'));
+	});
+};
+
+// 奖励时间：临时放行 N 分钟，到点自动恢复阻断
+window.netquotaRewardDlg = function(mac) {
+	var dev = null;
+	(_devs || []).forEach(function(d) { if (d.mac === mac) dev = d; });
+	var devName = dev ? (dev.name || macFmt(mac)) : macFmt(mac);
+
+	var input = E('input', {
+		type: 'number', min: '1', max: '720', value: '10',
+		placeholder: '自定义分钟数',
+		style: 'width:100%;box-sizing:border-box;margin-top:8px;padding:6px'
+	});
+
+	var mkBtn = function(mins) {
+		return E('button', {
+			class: 'btn cbi-button-action', style: 'margin:4px;padding:8px 14px;font-size:1em',
+			click: function() { doReward(mins); }
+		}, mins + ' 分钟');
+	};
+
+	var doReward = function(mins) {
+		if (!mins || mins <= 0) {
+			ui.addNotification(null, E('p', '请输入有效的分钟数'), 'error');
+			return;
+		}
+		ui.hideModal();
+		netquotad(['allow', mac, String(mins)]).then(function(res) {
+			var remain = Math.round((res.remain_seconds || mins * 60) / 60);
+			ui.addNotification(null, E('p', '🎁 已奖励 ' + devName + ' ' + mins + ' 分钟，剩余 ' + remain + ' 分钟后自动恢复阻断'), 'info');
+			poll.refresh();
+		}).catch(function(err) {
+			ui.addNotification(null, E('p', '奖励失败: ' + (err.message || err)), 'error');
+		});
+	};
+
+	ui.showModal('🎁 奖励时间 — ' + devName, [
+		E('p', { style: 'color:#666;margin:0 0 6px' }, '临时放行一段时间，倒计时结束自动恢复阻断（不消耗今日配额）'),
+		E('div', { style: 'display:flex;flex-wrap:wrap;justify-content:center' },
+			[mkBtn(5), mkBtn(10), mkBtn(20), mkBtn(30)]),
+		E('div', { style: 'margin-top:4px' }, [input]),
+		E('div', { style: 'text-align:right;margin-top:10px' }, [
+			E('button', { class: 'btn', click: ui.hideModal }, '取消'),
+			E('button', { class: 'btn cbi-button-action important', style: 'margin-left:8px',
+				click: function() { doReward(parseInt(input.value) || 0); } }, '确认奖励')
+		])
+	]);
+};
+
+// 提前结束奖励，立即恢复阻断
+window.netquotaRewardEnd = function(mac) {
+	netquotad(['unreward', mac]).then(function() {
+		ui.addNotification(null, E('p', '奖励已结束，已恢复阻断'), 'info');
+		poll.refresh();
 	});
 };
 

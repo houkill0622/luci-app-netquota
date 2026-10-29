@@ -22,12 +22,24 @@ const (
 )
 
 func main() {
+	// 提取 "-socket /path" 参数（任意位置），其余作为命令参数
+	var clean []string
+	socket := defaultSocket
+	for i := 0; i < len(os.Args); i++ {
+		if os.Args[i] == "-socket" && i+1 < len(os.Args) {
+			socket = os.Args[i+1]
+			i++
+			continue
+		}
+		clean = append(clean, os.Args[i])
+	}
+	os.Args = clean
+
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(1)
 	}
 
-	socket := defaultSocket
 	cmd := os.Args[1]
 	args := os.Args[2:]
 
@@ -96,6 +108,30 @@ func main() {
 	case "blocked":
 		callGet(client, "/api/v1/blocked")
 
+	case "allow":
+		// netquotad-cli allow <mac|名字> <分钟>  — 给奖励时间
+		if len(args) < 2 {
+			fatal("用法: netquotad-cli allow <mac|设备名> <分钟>")
+		}
+		minutes := 0
+		fmt.Sscanf(args[1], "%d", &minutes)
+		if minutes <= 0 {
+			fatal("分钟数无效: " + args[1])
+		}
+		// 名字/MAC 解析交给 daemon 端，CLI 透传
+		data, _ := json.Marshal(map[string]interface{}{"mac": args[0], "minutes": minutes})
+		callPost(client, "/api/v1/reward", data)
+
+	case "rewards":
+		callGet(client, "/api/v1/reward")
+
+	case "unreward":
+		// 提前结束奖励，立即恢复阻断
+		if len(args) < 1 {
+			fatal("用法: netquotad-cli unreward <mac>")
+		}
+		callDelete(client, "/api/v1/reward?mac="+args[0])
+
 	case "block":
 		if len(args) < 1 {
 			fatal("用法: netquotad-cli block <mac> [ip]")
@@ -147,6 +183,8 @@ func usage() {
   netquotad-cli devices update <mac> <json>  更新设备
   netquotad-cli devices delete <mac>     删除设备
   netquotad-cli blocked                  查看被阻断设备
+  netquotad-cli allow <mac|名> <分钟>     给奖励时间（临时放行，到点自动恢复阻断）
+  netquotad-cli rewards                  查看奖励中的设备及剩余时间
   netquotad-cli block <mac> [ip]         阻断设备
   netquotad-cli unblock <mac> [ip]       解除阻断
   netquotad-cli scan                     扫描局域网设备
@@ -186,8 +224,19 @@ func (c *socketClient) get(path string) ([]byte, error) {
 }
 
 func (c *socketClient) post(path string, body interface{}) ([]byte, error) {
-	b, _ := json.Marshal(body)
-	resp, err := c.httpClient.Post(c.baseURL+path, "application/json", bytes.NewReader(b))
+	var b []byte
+	switch v := body.(type) {
+	case []byte:
+		b = v
+	default:
+		b, _ = json.Marshal(body)
+	}
+	req, err := http.NewRequest("POST", c.baseURL+path, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

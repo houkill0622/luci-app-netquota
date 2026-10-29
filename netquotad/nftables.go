@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	nftTableName  = "netquota"
-	nftBlockSet   = "blocked_devices"
-	nftCountSet   = "tracked_devices"
-	nftChainName  = "netquota_track"
+	nftTableName = "netquota"
+	nftBlockSet  = "blocked_devices"
+	nftCountSet  = "tracked_devices"
+	nftChainName = "netquota_track"
 )
 
 // NFTableInit 初始化 nftables 表和规则

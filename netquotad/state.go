@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,16 +12,17 @@ import (
 
 // DeviceState 设备当前状态
 type DeviceState struct {
-	MAC          string `json:"mac"`
-	Name         string `json:"name"`
-	IP           string `json:"ip"`
-	Quota        int    `json:"quota"`    // 每日额度（分钟）
-	UsedMinutes  int    `json:"used"`     // 已用时长（分钟）
-	Blocked      bool   `json:"blocked"`  // 是否被阻断
-	LastSeen     int64  `json:"last_seen"` // 最后活跃时间戳
-	LastBytes    uint64 `json:"last_bytes"` // 上一次的流量计数
-	Enabled      bool   `json:"enabled"`
-	Mode         int    `json:"mode"`
+	MAC         string `json:"mac"`
+	Name        string `json:"name"`
+	IP          string `json:"ip"`
+	Quota       int    `json:"quota"`      // 每日额度（分钟）
+	UsedMinutes int    `json:"used"`       // 已用时长（分钟）
+	Blocked     bool   `json:"blocked"`    // 是否被阻断
+	LastSeen    int64  `json:"last_seen"`  // 最后活跃时间戳
+	LastBytes   uint64 `json:"last_bytes"` // 上一次的流量计数
+	Enabled     bool   `json:"enabled"`
+	Mode        int    `json:"mode"`
+	RewardUntil int64  `json:"reward_until,omitempty"` // 奖励时间截止时间戳（Unix秒），0=无
 }
 
 // StateManager 状态管理器
@@ -191,6 +193,49 @@ func (sm *StateManager) RemoveDevice(mac string) {
 }
 
 // NeedReset 检查是否需要每日重置
+// GrantReward 给设备一段奖励时间（临时放行），不叠加取顺延：
+// 新截止 = max(当前奖励截止, 现在) + 分钟数。返回新截止时间戳。
+func (sm *StateManager) GrantReward(mac string, minutes int) (int64, bool) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	d, ok := sm.devices[mac]
+	if !ok {
+		return 0, false
+	}
+	now := time.Now().Unix()
+	base := d.RewardUntil
+	if base < now {
+		base = now
+	}
+	d.RewardUntil = base + int64(minutes)*60
+	log.Printf("[netquotad] 奖励时间: %s(%s) + %d 分钟，至 %s",
+		d.Name, d.IP, minutes, time.Unix(d.RewardUntil, 0).Format("15:04:05"))
+	sm.saveState()
+	return d.RewardUntil, true
+}
+
+// RevokeReward 取消奖励时间（立即恢复阻断状态判定）
+func (sm *StateManager) RevokeReward(mac string) bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	d, ok := sm.devices[mac]
+	if !ok {
+		return false
+	}
+	d.RewardUntil = 0
+	sm.saveState()
+	return true
+}
+
+// ClearReward 清除奖励标记（Monitor 到期恢复阻断时调用）
+func (sm *StateManager) ClearReward(mac string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if d, ok := sm.devices[mac]; ok {
+		d.RewardUntil = 0
+	}
+}
+
 func (sm *StateManager) NeedReset() bool {
 	today := time.Now().Format("2006-01-02")
 	return today != sm.today
@@ -205,6 +250,7 @@ func (sm *StateManager) ResetDaily() {
 		d.UsedMinutes = 0
 		d.Blocked = false
 		d.LastBytes = 0
+		d.RewardUntil = 0
 	}
 	sm.saveState()
 }
@@ -212,7 +258,7 @@ func (sm *StateManager) ResetDaily() {
 // saveState 保存状态到文件
 func (sm *StateManager) saveState() {
 	data := struct {
-		Today   string                 `json:"today"`
+		Today   string                  `json:"today"`
 		Devices map[string]*DeviceState `json:"devices"`
 	}{
 		Today:   sm.today,
@@ -232,7 +278,7 @@ func (sm *StateManager) loadState() {
 		return // 文件不存在，使用空状态
 	}
 	var data struct {
-		Today   string                 `json:"today"`
+		Today   string                  `json:"today"`
 		Devices map[string]*DeviceState `json:"devices"`
 	}
 	if err := json.Unmarshal(b, &data); err != nil {

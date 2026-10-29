@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // RPCServer RPC 服务
@@ -42,6 +43,7 @@ func (s *RPCServer) setupMux() *http.ServeMux {
 	mux.HandleFunc("/api/v1/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/reset", s.handleReset)
 	mux.HandleFunc("/api/v1/config", s.handleConfig)
+	mux.HandleFunc("/api/v1/reward", s.handleReward)
 	mux.HandleFunc("/api/v1/", s.handleCORS)
 	return mux
 }
@@ -86,18 +88,100 @@ func (s *RPCServer) Start() error {
 	select {}
 }
 
+// handleReward 奖励时间：POST {mac, minutes} 临时放行 N 分钟；
+// DELETE ?mac= 立即取消奖励。GET 列出奖励中的设备。
+func (s *RPCServer) handleReward(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		now := time.Now().Unix()
+		var rewards []map[string]interface{}
+		for _, d := range s.state.GetAllDevices() {
+			if d.Blocked && d.RewardUntil > now {
+				rewards = append(rewards, map[string]interface{}{
+					"mac": d.MAC, "name": d.Name, "ip": d.IP,
+					"reward_until":   d.RewardUntil,
+					"remain_seconds": d.RewardUntil - now,
+				})
+			}
+		}
+		jsonResp(w, map[string]interface{}{"rewards": rewards})
+	case http.MethodPost:
+		var req struct {
+			MAC     string `json:"mac"`
+			Minutes int    `json:"minutes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "无效请求")
+			return
+		}
+		// 支持传 MAC 或设备名（大小写不敏感模糊匹配）
+		key := strings.ToUpper(strings.TrimSpace(req.MAC))
+		mac := key
+		dev := s.state.GetDevice(mac)
+		if dev == nil {
+			for _, d := range s.state.GetAllDevices() {
+				n := strings.ToUpper(d.Name)
+				if n == key || strings.Contains(n, key) {
+					mac = d.MAC
+					dev = s.state.GetDevice(mac)
+					break
+				}
+			}
+		}
+		if mac == "" || req.Minutes <= 0 {
+			jsonError(w, "缺少 mac 或 minutes 参数")
+			return
+		}
+		if dev == nil {
+			jsonError(w, "设备不存在: "+req.MAC)
+			return
+		}
+		until, ok := s.state.GrantReward(mac, req.Minutes)
+		if !ok {
+			jsonError(w, "设备不存在: "+mac)
+			return
+		}
+		// 立即放行 v4 集合（v6 由下个 tick 幂等同步清掉）
+		NFUnblockDevice(dev.IP)
+		jsonResp(w, map[string]interface{}{
+			"status": "rewarded", "mac": mac, "name": dev.Name,
+			"minutes":        req.Minutes,
+			"reward_until":   until,
+			"remain_seconds": until - time.Now().Unix(),
+		})
+	case http.MethodDelete:
+		mac := strings.ToUpper(r.URL.Query().Get("mac"))
+		if mac == "" {
+			jsonError(w, "缺少 mac 参数")
+			return
+		}
+		if dev := s.state.GetDevice(mac); dev != nil && dev.Blocked {
+			// 恢复阻断（下个 tick 的奖励分支不再触发，直接走阻断重同步）
+			NFBlockDevice(dev.IP)
+		}
+		s.state.RevokeReward(mac)
+		s.state.Save()
+		jsonResp(w, map[string]string{"status": "revoked"})
+	}
+}
+
 // handleStatus 返回整体状态
 func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	devices := s.state.GetAllDevices()
 	total := len(devices)
 	online := 0
 	blocked := 0
+	now := time.Now().Unix()
+	var rewards [][]interface{}
 	for _, d := range devices {
 		if d.LastSeen > 0 {
 			online++
 		}
 		if d.Blocked {
 			blocked++
+			if d.RewardUntil > now {
+				rewards = append(rewards, []interface{}{d.Name, d.RewardUntil - now})
+			}
 		}
 	}
 
@@ -105,6 +189,7 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"total_devices":   total,
 		"online_devices":  online,
 		"blocked_devices": blocked,
+		"rewarding":       rewards,
 	})
 }
 
@@ -116,7 +201,7 @@ func (s *RPCServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		jsonResp(w, map[string]interface{}{"devices": devices})
 	case http.MethodPost:
 		var req struct {
-			MAC     string `json:"mac"`
+			MAC     string  `json:"mac"`
 			Name    *string `json:"name"`
 			Quota   *int    `json:"quota"`
 			Mode    *int    `json:"mode"`

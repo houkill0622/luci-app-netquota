@@ -58,8 +58,24 @@ netquotad-cli devices delete <mac>      # 删除设备
 netquotad-cli scan                      # 扫描局域网
 netquotad-cli block <mac> [ip]          # 手动阻断
 netquotad-cli unblock <mac> [ip]        # 解除阻断
+netquotad-cli allow <mac|名> <分钟>      # 奖励时间：临时放行 N 分钟，到点自动恢复阻断
+netquotad-cli rewards                   # 查看奖励中的设备及剩余时间
+netquotad-cli unreward <mac>            # 提前结束奖励，立即恢复阻断
 netquotad-cli reset                     # 手动重置今日统计
 ```
+
+### 🎁 奖励时间
+
+孩子表现好，想临时多给几分钟上网？不用永久解封，给一段「奖励时间」即可：
+
+- **LuCI 界面**：被阻断设备行会显示「🎁 奖励」按钮，点击后选 5 / 10 / 20 / 30 分钟或输入自定义分钟数，确认后立即放行，页面实时显示剩余时间，倒计时结束**自动恢复阻断**
+- **命令行**：`netquotad-cli allow <MAC或设备名> <分钟>`
+- **规则**：
+  - 奖励时间不叠加，重复给取顺延（在当前剩余基础上累加）
+  - 奖励期间不计时、不消耗每日配额
+  - 重启后奖励状态保留（按时间戳判断，倒计时自然继续）
+  - 每笔奖励写入系统日志（`logread | grep netquotad`）
+- **提前结束**：界面上点「结束奖励」按钮，或 `netquotad-cli unreward <mac>`，立即恢复阻断
 
 ---
 
@@ -253,8 +269,8 @@ netquotad-cli config
 ## 📋 版本计划
 
 - [x] **v1.0** — 核心功能：设备管理、配额、阻断、重置、LuCI 界面
-- [ ] **v1.1** — 周末/节假日模式、奖励时间、暂停功能
-- [ ] **v1.2** — 统计图表、使用记录、通知推送
+- [x] **v1.1** — IPv6 阻断支持（NDP 反查 GUA）、奖励时间（快捷 5/10/20/30 分钟 + 自定义）
+- [ ] **v1.2** — 周末/节假日模式、统计图表、使用记录、通知推送
 - [ ] **v2.0** — 多用户分组、家长模式、OpenAppFilter 联动
 - [ ] **v2.1** — REST API、家庭日历、QR 码临时放行
 

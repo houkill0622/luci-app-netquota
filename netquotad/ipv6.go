@@ -12,6 +12,7 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const (
@@ -73,8 +74,10 @@ func SyncBlockedIPv6(state *StateManager) {
 	ensureV6()
 
 	var addrs []string
+	now := time.Now().Unix()
 	for _, dev := range state.GetAllDevices() {
-		if dev.Blocked {
+		// 奖励期内的设备暂时放行，不写入 v6 阻断集合
+		if dev.Blocked && dev.RewardUntil <= now {
 			addrs = append(addrs, resolveGUAByMAC(dev.MAC)...)
 		}
 	}

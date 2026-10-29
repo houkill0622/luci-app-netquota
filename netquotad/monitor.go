@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	TrafficThreshold    = 100 * 1024 // 流量阈值：100KB
-	MonitorInterval     = 60         // 监控间隔：60秒
-	ArpTablePath        = "/proc/net/arp"
+	TrafficThreshold = 100 * 1024 // 流量阈值：100KB
+	MonitorInterval  = 60         // 监控间隔：60秒
+	ArpTablePath     = "/proc/net/arp"
 )
 
 // Monitor 监控器
@@ -96,6 +96,30 @@ func (m *Monitor) tick() {
 
 // checkDevice 检查单个设备的时长和流量
 func (m *Monitor) checkDevice(dev *DeviceState) {
+	// 奖励时间处理：被阻断但处于奖励期内 → 保持放行（v4+v6 集合移除）；
+	// 奖励到期 → 自动重新阻断。奖励期间不计时、不扣配额。
+	if dev.Blocked && dev.RewardUntil > 0 {
+		now := time.Now().Unix()
+		if now < dev.RewardUntil {
+			// 奖励期内：确保 v4/v6 集合都没有该设备（幂等）
+			NFUnblockDevice(dev.IP)
+			exec.Command("nft", "delete", "element", "inet", nftTableName, nftBlockSetV6,
+				fmt.Sprintf("{ %s }", dev.IP)).Run()
+			// NDP 反查 v6 地址并移除
+			for _, a := range resolveGUAByMAC(dev.MAC) {
+				exec.Command("nft", "delete", "element", "inet", nftTableName, nftBlockSetV6,
+					fmt.Sprintf("{ %s }", a)).Run()
+			}
+			return
+		}
+		// 奖励到期：清标记，自动重新阻断（v4 立即，v6 由本 tick 末的同步写入）
+		log.Printf("[netquotad] %s(%s) 奖励时间结束，恢复阻断", dev.Name, dev.IP)
+		m.state.ClearReward(dev.MAC)
+		if dev.IP != "" {
+			NFBlockDevice(dev.IP)
+		}
+	}
+
 	// 已阻断的设备不计时（阻断后流量包被 nftables drop 了，不需要再计）
 	if dev.Blocked {
 		// 但依然要检查是否需要解封（手动调整了时长）
@@ -263,11 +287,11 @@ func (m *Monitor) DetectActiveDevices() ([]DetectedDevice, error) {
 		hostname := resolveHostname(ip)
 
 		devices = append(devices, DetectedDevice{
-			MAC:      mac,
-			IP:       ip,
-			Name:     hostname,
-			HWType:   hw,
-			Online:   true,
+			MAC:    mac,
+			IP:     ip,
+			Name:   hostname,
+			HWType: hw,
+			Online: true,
 		})
 	}
 	return devices, nil
@@ -275,12 +299,12 @@ func (m *Monitor) DetectActiveDevices() ([]DetectedDevice, error) {
 
 // DetectedDevice 扫描到的设备信息
 type DetectedDevice struct {
-	MAC      string `json:"mac"`
-	IP       string `json:"ip"`
-	Name     string `json:"name"`
-	Vendor   string `json:"vendor"`
-	HWType   string `json:"hw_type"`
-	Online   bool   `json:"online"`
+	MAC    string `json:"mac"`
+	IP     string `json:"ip"`
+	Name   string `json:"name"`
+	Vendor string `json:"vendor"`
+	HWType string `json:"hw_type"`
+	Online bool   `json:"online"`
 }
 
 func resolveHostname(ip string) string {
