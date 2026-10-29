@@ -30,6 +30,9 @@ func NFTableInit() error {
 		// ⚠️ 注意顺序：先 drop 阻断设备，再 accept 计数设备
 		fmt.Sprintf("nft add rule inet %s %s ip saddr @%s drop 2>/dev/null; true", nftTableName, nftChainName, nftBlockSet),
 		fmt.Sprintf("nft add rule inet %s %s ip saddr @%s counter accept 2>/dev/null; true", nftTableName, nftChainName, nftCountSet),
+		// IPv6 阻断集合与 drop 规则（幂等，元素由 SyncBlockedIPv6 填充）
+		fmt.Sprintf("nft add set inet %s %s '{ type ipv6_addr; flags timeout; }' 2>/dev/null; true", nftTableName, nftBlockSetV6),
+		fmt.Sprintf("nft add rule inet %s %s ip6 saddr @%s drop 2>/dev/null; true", nftTableName, nftChainName, nftBlockSetV6),
 	}
 
 	for i, cmd := range cmds {

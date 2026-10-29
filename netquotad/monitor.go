@@ -87,7 +87,10 @@ func (m *Monitor) tick() {
 		m.checkDevice(&dev)
 	}
 
-	// 4. 保存状态
+	// 4. 同步 IPv6 阻断（NDP 反查 GUA，幂等重建集合）
+	SyncBlockedIPv6(m.state)
+
+	// 5. 保存状态
 	m.state.Save()
 }
 
@@ -218,6 +221,8 @@ func (m *Monitor) resetDaily() {
 			NFUnblockDevice(ip)
 		}
 	}
+	// 同步清理 IPv6 阻断集合
+	exec.Command("nft", "flush", "set", "inet", nftTableName, nftBlockSetV6).Run()
 
 	// 重新初始化 nftables
 	NFTableInit()
