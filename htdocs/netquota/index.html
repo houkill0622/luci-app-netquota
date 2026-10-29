@@ -8,40 +8,65 @@
 <title>网络时长管理</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #eaeaea; min-height: 100vh; padding: 12px; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #eaeaea; min-height: 100vh; padding: 12px; max-width: 720px; margin: 0 auto; }
 h1 { font-size: 1.2em; text-align: center; padding: 8px 0 12px; color: #ffd700; }
 #status { text-align: center; font-size: 0.85em; color: #888; padding-bottom: 8px; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar button { flex: 1; min-width: 100px; padding: 10px 6px; font-size: 0.95em; }
+.t-scan { background: #00695c; } .t-reset { background: #6a1b9a; } .t-unall { background: #455a64; } .t-cfg { background: #37474f; }
 .card { background: #24243e; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .dev-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
 .dev-name { font-size: 1.1em; font-weight: bold; }
 .dev-ip { color: #888; font-size: 0.8em; }
 .badge { font-size: 0.8em; padding: 2px 10px; border-radius: 10px; font-weight: bold; }
 .b-online { background: #2e7d32; } .b-blocked { background: #c62828; } .b-offline { background: #555; } .b-reward { background: #ef6c00; }
-.quota-line { margin: 8px 0; font-size: 0.9em; color: #bbb; }
+.quota-line { margin: 8px 0 4px; font-size: 0.9em; color: #bbb; }
 .bar { background: #333; border-radius: 6px; height: 10px; overflow: hidden; margin: 4px 0 10px; }
 .bar > div { height: 100%; background: linear-gradient(90deg,#4CAF50,#8BC34A); }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-button { flex: 1; min-width: 90px; padding: 12px 8px; font-size: 1em; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; color: #fff; -webkit-tap-highlight-color: transparent; }
+button { flex: 1; min-width: 80px; padding: 12px 8px; font-size: 1em; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; color: #fff; -webkit-tap-highlight-color: transparent; }
 .b-block { background: #c62828; } .b-unblock { background: #1976d2; } .b-reward { background: #2e7d32; } .b-end { background: #ef6c00; } .b-cancel { background: #555; flex: 0; }
+.b-edit { background: #5c6bc0; } .b-del { background: #6d4c41; min-width: 70px; }
 .min-btn { background: #388e3c; min-width: 70px; }
-#rewardDlg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
-#rewardDlg.show { display: flex; }
-.dlg { background: #24243e; border-radius: 14px; padding: 20px; width: 100%; max-width: 340px; text-align: center; }
+#rewardDlg, #editDlg, #scanDlg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
+#rewardDlg.show, #editDlg.show, #scanDlg.show { display: flex; }
+.dlg { background: #24243e; border-radius: 14px; padding: 20px; width: 100%; max-width: 360px; text-align: center; max-height: 85vh; overflow-y: auto; }
 .dlg h3 { color: #ffd700; margin-bottom: 6px; }
 .dlg .hint { font-size: 0.8em; color: #999; margin-bottom: 12px; }
 .dlg .grid { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
-.dlg input { width: 100%; padding: 12px; font-size: 1.1em; border-radius: 8px; border: 1px solid #444; background: #1a1a2e; color: #fff; text-align: center; margin-bottom: 12px; }
+.dlg input, .dlg select { width: 100%; padding: 12px; font-size: 1.05em; border-radius: 8px; border: 1px solid #444; background: #1a1a2e; color: #fff; text-align: center; margin-bottom: 12px; }
+.dlg label { font-size: 0.85em; color: #aaa; display: block; text-align: left; margin-bottom: 4px; }
+.scan-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid #333; text-align: left; font-size: 0.85em; }
+.scan-item input { width: auto; margin: 0; }
+.scan-item .m { color: #888; font-size: 0.8em; }
 #toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #323232; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 0.9em; z-index: 200; display: none; max-width: 90%; text-align: center; }
 #toast.err { background: #c62828; }
 .empty { text-align: center; color: #888; padding: 30px 0; }
+#authMask { position: fixed; inset: 0; background: #1a1a2e; z-index: 300; display: flex; align-items: center; justify-content: center; }
+#authMask .dlg { max-width: 300px; }
 </style>
 </head>
 <body>
+<div id="authMask" style="display:none">
+  <div class="dlg">
+    <h3>🔐 访问口令</h3>
+    <p class="hint">请输入管理口令（保存在本机）</p>
+    <input id="authInput" type="password" placeholder="口令">
+    <div class="btn-row"><button class="b-reward" onclick="doAuth()">进入</button></div>
+    <p class="hint" id="authErr" style="color:#ef5350"></p>
+  </div>
+</div>
 <h1>⏳ 网络时长管理</h1>
 <div id="status">加载中…</div>
+<div class="toolbar">
+  <button class="t-scan" onclick="openScan()">📡 扫描</button>
+  <button class="t-unall" onclick="unblockAll()">🔓 全部解封</button>
+  <button class="t-reset" onclick="resetToday()">🔄 今日重置</button>
+  <button class="t-cfg" onclick="openCfg()">⚙️ 设置</button>
+</div>
 <div id="devs"></div>
 
-<div id="rewardDlg" onclick="if(event.target===this)hideDlg()">
+<div id="rewardDlg" onclick="if(event.target===this)hideDlg('rewardDlg')">
   <div class="dlg">
     <h3 id="dlgTitle">🎁 奖励时间</h3>
     <p class="hint">临时放行，倒计时结束自动恢复阻断（不扣今日配额）</p>
@@ -53,17 +78,52 @@ button { flex: 1; min-width: 90px; padding: 12px 8px; font-size: 1em; border: no
     </div>
     <input id="customMin" type="number" min="1" max="720" placeholder="自定义分钟数">
     <div class="btn-row">
-      <button class="b-cancel" onclick="hideDlg()">取消</button>
+      <button class="b-cancel" onclick="hideDlg('rewardDlg')">取消</button>
       <button class="b-reward" onclick="doRewardCustom()">确认奖励</button>
     </div>
   </div>
 </div>
+
+<div id="editDlg" onclick="if(event.target===this)hideDlg('editDlg')">
+  <div class="dlg">
+    <h3 id="editTitle">编辑设备</h3>
+    <label>设备名称</label>
+    <input id="editName" type="text" placeholder="例如: 宝宝iPad">
+    <label>MAC 地址</label>
+    <input id="editMac" type="text" placeholder="AA:BB:CC:DD:EE:FF">
+    <label>每日配额（分钟，0=不限制）</label>
+    <input id="editQuota" type="number" min="0" max="1440" placeholder="60">
+    <label>计时模式</label>
+    <select id="editMode">
+      <option value="1">连网即计时</option>
+      <option value="2" selected>有流量才计时（推荐）</option>
+    </select>
+    <div class="btn-row">
+      <button class="b-cancel" onclick="hideDlg('editDlg')">取消</button>
+      <button class="b-reward" onclick="saveDevice()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="scanDlg" onclick="if(event.target===this)hideDlg('scanDlg')">
+  <div class="dlg">
+    <h3>📡 局域网扫描</h3>
+    <p class="hint" id="scanHint">正在扫描…</p>
+    <div id="scanList"></div>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="b-cancel" onclick="hideDlg('scanDlg')">关闭</button>
+      <button class="b-reward" onclick="addChecked()">加入选中</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
 'use strict';
-var API = '/netquota/api';  // 同源走 nginx 反代到 daemon :9800，无 CORS 问题
-var _timer = null, _dlgMac = null, _dlgName = '';
+var API = '/netquota/api';  // nginx 同源反代 daemon :9800
+var TOKEN = localStorage.getItem('nq_token') || '';
+var _timer = null, _dlgMac = null, _dlgName = '', _scanned = [];
 
 function toast(msg, isErr) {
   var t = document.getElementById('toast');
@@ -71,63 +131,106 @@ function toast(msg, isErr) {
   t.style.display = 'block';
   clearTimeout(t._t); t._t = setTimeout(function(){ t.style.display='none'; }, 3500);
 }
-function esc(s){ var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
 function dur(m){ m=Math.max(0,Math.round(m)); if(m<60) return m+' 分钟'; var h=Math.floor(m/60),r=m%60; return r?h+' 时 '+r+' 分':h+' 时'; }
 
 function api(path, opts) {
-  return fetch(API + path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}))
-    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+  opts = opts || {};
+  opts.headers = Object.assign({'Content-Type':'application/json','X-Auth-Token':TOKEN}, opts.headers||{});
+  return fetch(API + path, opts).then(function(r){
+    if (r.status === 401) { showAuth('口令错误或已失效'); throw new Error('需要口令'); }
+    if (!r.ok) return r.json().catch(function(){return {};}).then(function(j){ throw new Error(j.error || ('HTTP '+r.status)); });
+    return r.json();
+  });
 }
 
+/* ---------- 鉴权（nginx 层校验 token，401 弹出口令框） ---------- */
+function showAuth(errMsg) {
+  document.getElementById('authMask').style.display = 'flex';
+  if (errMsg) document.getElementById('authErr').textContent = errMsg;
+}
+function doAuth() {
+  var v = document.getElementById('authInput').value.trim();
+  if (!v) return;
+  TOKEN = v;
+  fetch(API + '/status', {headers:{'X-Auth-Token':TOKEN}}).then(function(r){
+    if (r.status === 401) { document.getElementById('authErr').textContent = '口令不对，再试试'; return; }
+    localStorage.setItem('nq_token', TOKEN);
+    document.getElementById('authMask').style.display = 'none';
+    document.getElementById('authErr').textContent = '';
+    boot();
+  }).catch(function(){ document.getElementById('authErr').textContent = '网络错误'; });
+}
+document.getElementById('authInput').addEventListener('keydown', function(e){ if(e.key==='Enter') doAuth(); });
+
+/* ---------- 加载与渲染 ---------- */
 function load() {
   return Promise.all([api('/devices'), api('/status')]).then(function(rs){
     render(rs[0].devices||[], rs[1]||{});
   }).catch(function(e){
-    document.getElementById('status').textContent = '连接失败：' + e.message + '（检查设备是否在同一网络）';
+    if (String(e.message).indexOf('口令') >= 0) return;
+    document.getElementById('status').textContent = '刷新失败：' + e.message + '（页面保留上次数据，稍后自动重试）';
   });
 }
 
 function render(devs, st) {
-  document.getElementById('status').textContent =
-    '设备 ' + devs.length + ' · 在线 ' + devs.filter(function(d){return d.online;}).length + ' · 阻断 ' + devs.filter(function(d){return d.blocked;}).length;
   var now = Date.now()/1000;
+  document.getElementById('status').textContent =
+    '设备 ' + devs.length + ' · 在线 ' + devs.filter(function(d){return d.last_seen && (now-d.last_seen<300);}).length +
+    ' · 阻断 ' + devs.filter(function(d){return d.blocked;}).length +
+    ' · 放行中 ' + (st.rewarding ? st.rewarding.length : 0);
   var html = devs.map(function(d){
     var online = d.last_seen && (now - d.last_seen < 300);
     var rewarding = d.reward_until && d.reward_until > now;
     var remainMin = d.quota > 0 ? d.quota - (d.used||0) : null;
     var pct = d.quota>0 ? Math.min(100, (d.used||0)/d.quota*100) : 0;
-    var badge = d.blocked ? '<span class="badge b-blocked">已阻断</span>'
-      : rewarding ? '<span class="badge b-reward">🎁 放行中</span>'
-      : online ? '<span class="badge b-online">在线</span>' : '<span class="badge b-offline">离线</span>';
+    var badge = d.blocked ? '<span class="badge b-blocked">⛔ 已阻断</span>'
+      : rewarding ? '<span class="badge b-reward">🎁 放行中 剩'+Math.ceil((d.reward_until-now)/60)+'分</span>'
+      : online ? '<span class="badge b-online">● 在线</span>' : '<span class="badge b-offline">○ 离线</span>';
     var quotaLine = d.quota>0
       ? '<div class="quota-line">今日已用 '+dur(d.used)+' / '+dur(d.quota)+'（剩 '+dur(remainMin)+'）</div>'
         + '<div class="bar"><div style="width:'+pct+'%"></div></div>'
-      : '<div class="quota-line">无限制</div>';
+      : '<div class="quota-line">不限制</div>';
     var btns = '';
-    if (rewarding) btns += '<button class="b-end" onclick="endReward(\''+d.mac+'\',\''+esc(d.name)+'\')">结束奖励</button> ';
-    else btns += '<button class="b-reward" onclick="showDlg(\''+d.mac+'\',\''+esc(d.name)+'\')">🎁 奖励</button> ';
+    if (rewarding) btns += '<button class="b-end" onclick="endReward(\''+d.mac+'\')">结束奖励</button> ';
+    else btns += '<button class="b-reward" onclick="showDlg(\''+d.mac+'\',\''+esc(d.name||d.mac)+'\')">🎁 奖励</button> ';
     if (d.blocked) btns += '<button class="b-unblock" onclick="doAct(\'unblock\',\''+d.mac+'\')">解封</button>';
     else btns += '<button class="b-block" onclick="doAct(\'block\',\''+d.mac+'\')">阻断</button>';
+    btns += '<button class="b-edit" onclick="openEdit(\''+d.mac+'\')">✏️</button>';
+    btns += '<button class="b-del" onclick="delDevice(\''+d.mac+'\',\''+esc(d.name||d.mac)+'\')">删</button>';
     return '<div class="card"><div class="dev-head"><div><div class="dev-name">'+esc(d.name||d.mac)+'</div>'
       + '<div class="dev-ip">'+esc(d.ip||'')+' · '+esc(d.mac)+'</div></div>'+badge+'</div>'
       + quotaLine + '<div class="btn-row">'+btns+'</div></div>';
   }).join('');
-  document.getElementById('devs').innerHTML = html || '<div class="empty">暂无设备，先用 LuCI 页添加</div>';
+  document.getElementById('devs').innerHTML = html || '<div class="empty">暂无设备，点上方「📡 扫描」添加</div>';
 }
 
+/* ---------- 阻断 / 解封 ---------- */
 function doAct(action, mac) {
-  var body = JSON.stringify({action: action, mac: mac, ip: ''});
-  api('/blocked', {method:'POST', body: body}).then(function(){
+  api('/blocked', {method:'POST', body: JSON.stringify({action:action, mac:mac})}).then(function(){
     toast(action==='block' ? '⛔ 已阻断' : '✅ 已解封'); load();
   }).catch(function(e){ toast('操作失败: '+e.message, true); });
 }
+function unblockAll() {
+  if (!confirm('确定解封所有设备？')) return;
+  api('/devices').then(function(r){
+    var blocked = (r.devices||[]).filter(function(d){return d.blocked;});
+    if (!blocked.length) { toast('当前没有被阻断的设备'); return; }
+    return Promise.all(blocked.map(function(d){
+      return api('/blocked', {method:'POST', body:JSON.stringify({action:'unblock', mac:d.mac})});
+    })).then(function(){ toast('✅ 已解封 '+blocked.length+' 台设备'); load(); });
+  }).catch(function(e){ toast('失败: '+e.message, true); });
+}
 
-function showDlg(mac, name) { _dlgMac=mac; _dlgName=name; document.getElementById('dlgTitle').textContent='🎁 奖励 — '+name; document.getElementById('rewardDlg').className='show'; }
-function hideDlg() { document.getElementById('rewardDlg').className=''; }
+/* ---------- 奖励 ---------- */
+function showDlg(mac, name) { _dlgMac=mac; _dlgName=name; document.getElementById('dlgTitle').textContent='🎁 奖励 — '+name; document.getElementById('customMin').value=''; document.getElementById('rewardDlg').className='show'; }
+function hideDlg(id) { document.getElementById(id).className=''; }
 function doReward(mins) {
-  hideDlg();
+  hideDlg('rewardDlg');
   api('/reward', {method:'POST', body: JSON.stringify({mac:_dlgMac, minutes:mins})}).then(function(r){
-    toast('🎁 已奖励 '+_dlgName+' '+mins+' 分钟'); load();
+    var remain = Math.round((r.remain_seconds||mins*60)/60);
+    toast('🎁 已奖励 '+_dlgName+' '+mins+' 分钟，剩 '+remain+' 分钟后自动恢复');
+    load();
   }).catch(function(e){ toast('奖励失败: '+e.message, true); });
 }
 function doRewardCustom() {
@@ -135,18 +238,116 @@ function doRewardCustom() {
   if (v<=0) { toast('请输入有效分钟数', true); return; }
   doReward(v);
 }
-function endReward(mac, name) {
+function endReward(mac) {
   api('/reward?mac='+encodeURIComponent(mac), {method:'DELETE'}).then(function(){
-    toast('奖励已结束，已恢复阻断'); setTimeout(load, 1200); load();
+    toast('奖励已结束'); setTimeout(load, 800); load();
   }).catch(function(e){ toast('操作失败: '+e.message, true); });
 }
 
-function tick() {
-  var now = Date.now()/1000;
-  document.querySelectorAll('.badge.b-reward').forEach(function(b){}); // 倒计时由 load() 周期刷新
+/* ---------- 编辑 / 删除 / 新增设备 ---------- */
+function openEdit(mac) {
+  api('/devices').then(function(r){
+    var d = (r.devices||[]).filter(function(x){return x.mac===mac;})[0];
+    if (!d) { toast('设备不存在', true); return; }
+    document.getElementById('editTitle').textContent = '✏️ 编辑 — ' + (d.name||d.mac);
+    document.getElementById('editName').value = d.name||'';
+    document.getElementById('editMac').value = d.mac;
+    document.getElementById('editMac').readOnly = !!d;
+    document.getElementById('editQuota').value = d.quota||0;
+    document.getElementById('editMode').value = String(d.mode||2);
+    document.getElementById('editDlg').className='show';
+  }).catch(function(e){ toast('加载失败: '+e.message, true); });
 }
-load();
-_timer = setInterval(load, 30000); // 30 秒自动刷新，比 LuCI poll 简单直接
+function saveDevice() {
+  var mac = document.getElementById('editMac').value.trim().toUpperCase();
+  var name = document.getElementById('editName').value.trim();
+  var quota = parseInt(document.getElementById('editQuota').value)||0;
+  var mode = parseInt(document.getElementById('editMode').value)||2;
+  if (!mac) { toast('MAC 不能为空', true); return; }
+  api('/devices', {method:'POST', body: JSON.stringify({mac:mac, name:name, quota:quota, mode:mode})}).then(function(){
+    toast('✅ 已保存'); hideDlg('editDlg'); setTimeout(load, 500);
+  }).catch(function(e){ toast('保存失败: '+e.message, true); });
+}
+function delDevice(mac, name) {
+  if (!confirm('确认删除「'+name+'」？')) return;
+  api('/devices?mac='+encodeURIComponent(mac), {method:'DELETE'}).then(function(){
+    toast('已删除'); load();
+  }).catch(function(e){ toast('删除失败: '+e.message, true); });
+}
+
+/* ---------- 扫描 ---------- */
+function openScan() {
+  _scanned = [];
+  document.getElementById('scanList').innerHTML = '<p class="hint">正在扫描，约需几秒…</p>';
+  document.getElementById('scanHint').textContent = '勾选要加入管理的设备';
+  document.getElementById('scanDlg').className='show';
+  api('/scan').then(function(r){
+    _scanned = r.devices||[];
+    if (!_scanned.length) { document.getElementById('scanList').innerHTML = '<p class="hint">没发现新设备</p>'; return; }
+    var known = {};
+    return api('/devices').then(function(dr){
+      (dr.devices||[]).forEach(function(d){ known[d.mac]=1; });
+      var fresh = _scanned.filter(function(d){ return !known[d.mac]; });
+      if (!fresh.length) { document.getElementById('scanList').innerHTML = '<p class="hint">没有发现新设备（都在名单里了）</p>'; return; }
+      document.getElementById('scanList').innerHTML = fresh.map(function(d,i){
+        return '<div class="scan-item"><input type="checkbox" class="scan-ck" data-i="'+i+'" checked>'
+          + '<div><div>'+esc(d.name||('设备-'+d.mac.slice(0,8)))+'</div><div class="m">'+esc(d.mac)+' · '+esc(d.ip||'')+'</div></div></div>';
+      }).join('');
+      _scanned = fresh;
+    });
+  }).catch(function(e){ document.getElementById('scanList').innerHTML=''; document.getElementById('scanHint').textContent = '扫描失败: '+e.message; });
+}
+function addChecked() {
+  var boxes = document.querySelectorAll('.scan-ck:checked');
+  if (!boxes.length) { toast('先勾选设备', true); return; }
+  var jobs = [];
+  boxes.forEach(function(b){
+    var d = _scanned[parseInt(b.getAttribute('data-i'))];
+    if (d) jobs.push(api('/devices', {method:'POST', body: JSON.stringify({mac:d.mac, name:d.name||('设备-'+d.mac.slice(0,8)), quota:60, mode:2})}));
+  });
+  Promise.all(jobs).then(function(){ toast('✅ 已加入 '+jobs.length+' 台'); hideDlg('scanDlg'); load(); })
+    .catch(function(e){ toast('加入失败: '+e.message, true); });
+}
+
+/* ---------- 重置 / 设置 ---------- */
+function resetToday() {
+  if (!confirm('重置所有设备今日用量？（阻断状态保留）')) return;
+  api('/reset', {method:'POST'}).then(function(){ toast('✅ 今日用量已重置'); load(); })
+    .catch(function(e){ toast('失败: '+e.message, true); });
+}
+function openCfg() {
+  api('/config').then(function(r){
+    var c = r.config||{};
+    var h = parseInt(c.reset_hour)||0;
+    var html = '<label>每日重置时间</label><select id="cfgHour">';
+    for (var i=0;i<24;i++) html += '<option value="'+i+'"'+(i===h?' selected':'')+'>'+('0'+i).slice(-2)+':00</option>';
+    html += '</select>';
+    document.getElementById('scanList').innerHTML = html;
+    document.getElementById('scanHint').textContent = '⚙️ 全局设置';
+    document.getElementById('scanDlg').className='show';
+    document.querySelector('#scanDlg .b-reward').textContent = '保存';
+    document.querySelector('#scanDlg .b-reward').onclick = function() {
+      var hour = parseInt(document.getElementById('cfgHour').value)||0;
+      api('/config', {method:'POST', body: JSON.stringify({devices:null, reset_hour:hour})}).then(function(){
+        toast('✅ 已保存，次日生效'); hideDlg('scanDlg');
+        document.querySelector('#scanDlg .b-reward').textContent = '加入选中';
+        document.querySelector('#scanDlg .b-reward').onclick = addChecked;
+      }).catch(function(e){ toast('保存失败: '+e.message, true); });
+    };
+  }).catch(function(e){ toast('读取配置失败: '+e.message, true); });
+}
+
+/* ---------- 启动 ---------- */
+function boot() {
+  load();
+  if (_timer) clearInterval(_timer);
+  _timer = setInterval(function(){ load().catch(function(){}); }, 8000);  // 8s 轮询，失败不挂页面
+}
+// 先探一次鉴权
+fetch(API + '/status', {headers:{'X-Auth-Token':TOKEN}}).then(function(r){
+  if (r.status === 401) { showAuth(''); return; }
+  boot();
+}).catch(function(){ boot(); });
 </script>
 </body>
 </html>
