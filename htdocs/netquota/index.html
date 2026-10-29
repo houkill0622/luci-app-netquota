@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a2e">
+<link rel="icon" href="data:,">
+<title>网络时长管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #1a1a2e; color: #eaeaea; min-height: 100vh; padding: 12px; }
+h1 { font-size: 1.2em; text-align: center; padding: 8px 0 12px; color: #ffd700; }
+#status { text-align: center; font-size: 0.85em; color: #888; padding-bottom: 8px; }
+.card { background: #24243e; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.dev-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+.dev-name { font-size: 1.1em; font-weight: bold; }
+.dev-ip { color: #888; font-size: 0.8em; }
+.badge { font-size: 0.8em; padding: 2px 10px; border-radius: 10px; font-weight: bold; }
+.b-online { background: #2e7d32; } .b-blocked { background: #c62828; } .b-offline { background: #555; } .b-reward { background: #ef6c00; }
+.quota-line { margin: 8px 0; font-size: 0.9em; color: #bbb; }
+.bar { background: #333; border-radius: 6px; height: 10px; overflow: hidden; margin: 4px 0 10px; }
+.bar > div { height: 100%; background: linear-gradient(90deg,#4CAF50,#8BC34A); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+button { flex: 1; min-width: 90px; padding: 12px 8px; font-size: 1em; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; color: #fff; -webkit-tap-highlight-color: transparent; }
+.b-block { background: #c62828; } .b-unblock { background: #1976d2; } .b-reward { background: #2e7d32; } .b-end { background: #ef6c00; } .b-cancel { background: #555; flex: 0; }
+.min-btn { background: #388e3c; min-width: 70px; }
+#rewardDlg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; padding: 16px; }
+#rewardDlg.show { display: flex; }
+.dlg { background: #24243e; border-radius: 14px; padding: 20px; width: 100%; max-width: 340px; text-align: center; }
+.dlg h3 { color: #ffd700; margin-bottom: 6px; }
+.dlg .hint { font-size: 0.8em; color: #999; margin-bottom: 12px; }
+.dlg .grid { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
+.dlg input { width: 100%; padding: 12px; font-size: 1.1em; border-radius: 8px; border: 1px solid #444; background: #1a1a2e; color: #fff; text-align: center; margin-bottom: 12px; }
+#toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #323232; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 0.9em; z-index: 200; display: none; max-width: 90%; text-align: center; }
+#toast.err { background: #c62828; }
+.empty { text-align: center; color: #888; padding: 30px 0; }
+</style>
+</head>
+<body>
+<h1>⏳ 网络时长管理</h1>
+<div id="status">加载中…</div>
+<div id="devs"></div>
+
+<div id="rewardDlg" onclick="if(event.target===this)hideDlg()">
+  <div class="dlg">
+    <h3 id="dlgTitle">🎁 奖励时间</h3>
+    <p class="hint">临时放行，倒计时结束自动恢复阻断（不扣今日配额）</p>
+    <div class="grid">
+      <button class="min-btn" onclick="doReward(5)">5 分钟</button>
+      <button class="min-btn" onclick="doReward(10)">10 分钟</button>
+      <button class="min-btn" onclick="doReward(20)">20 分钟</button>
+      <button class="min-btn" onclick="doReward(30)">30 分钟</button>
+    </div>
+    <input id="customMin" type="number" min="1" max="720" placeholder="自定义分钟数">
+    <div class="btn-row">
+      <button class="b-cancel" onclick="hideDlg()">取消</button>
+      <button class="b-reward" onclick="doRewardCustom()">确认奖励</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+var API = '/netquota/api';  // 同源走 nginx 反代到 daemon :9800，无 CORS 问题
+var _timer = null, _dlgMac = null, _dlgName = '';
+
+function toast(msg, isErr) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.className = isErr ? 'err' : '';
+  t.style.display = 'block';
+  clearTimeout(t._t); t._t = setTimeout(function(){ t.style.display='none'; }, 3500);
+}
+function esc(s){ var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function dur(m){ m=Math.max(0,Math.round(m)); if(m<60) return m+' 分钟'; var h=Math.floor(m/60),r=m%60; return r?h+' 时 '+r+' 分':h+' 时'; }
+
+function api(path, opts) {
+  return fetch(API + path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}))
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); });
+}
+
+function load() {
+  return Promise.all([api('/devices'), api('/status')]).then(function(rs){
+    render(rs[0].devices||[], rs[1]||{});
+  }).catch(function(e){
+    document.getElementById('status').textContent = '连接失败：' + e.message + '（检查设备是否在同一网络）';
+  });
+}
+
+function render(devs, st) {
+  document.getElementById('status').textContent =
+    '设备 ' + devs.length + ' · 在线 ' + devs.filter(function(d){return d.online;}).length + ' · 阻断 ' + devs.filter(function(d){return d.blocked;}).length;
+  var now = Date.now()/1000;
+  var html = devs.map(function(d){
+    var online = d.last_seen && (now - d.last_seen < 300);
+    var rewarding = d.reward_until && d.reward_until > now;
+    var remainMin = d.quota > 0 ? d.quota - (d.used||0) : null;
+    var pct = d.quota>0 ? Math.min(100, (d.used||0)/d.quota*100) : 0;
+    var badge = d.blocked ? '<span class="badge b-blocked">已阻断</span>'
+      : rewarding ? '<span class="badge b-reward">🎁 放行中</span>'
+      : online ? '<span class="badge b-online">在线</span>' : '<span class="badge b-offline">离线</span>';
+    var quotaLine = d.quota>0
+      ? '<div class="quota-line">今日已用 '+dur(d.used)+' / '+dur(d.quota)+'（剩 '+dur(remainMin)+'）</div>'
+        + '<div class="bar"><div style="width:'+pct+'%"></div></div>'
+      : '<div class="quota-line">无限制</div>';
+    var btns = '';
+    if (rewarding) btns += '<button class="b-end" onclick="endReward(\''+d.mac+'\',\''+esc(d.name)+'\')">结束奖励</button> ';
+    else btns += '<button class="b-reward" onclick="showDlg(\''+d.mac+'\',\''+esc(d.name)+'\')">🎁 奖励</button> ';
+    if (d.blocked) btns += '<button class="b-unblock" onclick="doAct(\'unblock\',\''+d.mac+'\')">解封</button>';
+    else btns += '<button class="b-block" onclick="doAct(\'block\',\''+d.mac+'\')">阻断</button>';
+    return '<div class="card"><div class="dev-head"><div><div class="dev-name">'+esc(d.name||d.mac)+'</div>'
+      + '<div class="dev-ip">'+esc(d.ip||'')+' · '+esc(d.mac)+'</div></div>'+badge+'</div>'
+      + quotaLine + '<div class="btn-row">'+btns+'</div></div>';
+  }).join('');
+  document.getElementById('devs').innerHTML = html || '<div class="empty">暂无设备，先用 LuCI 页添加</div>';
+}
+
+function doAct(action, mac) {
+  var body = JSON.stringify({action: action, mac: mac, ip: ''});
+  api('/blocked', {method:'POST', body: body}).then(function(){
+    toast(action==='block' ? '⛔ 已阻断' : '✅ 已解封'); load();
+  }).catch(function(e){ toast('操作失败: '+e.message, true); });
+}
+
+function showDlg(mac, name) { _dlgMac=mac; _dlgName=name; document.getElementById('dlgTitle').textContent='🎁 奖励 — '+name; document.getElementById('rewardDlg').className='show'; }
+function hideDlg() { document.getElementById('rewardDlg').className=''; }
+function doReward(mins) {
+  hideDlg();
+  api('/reward', {method:'POST', body: JSON.stringify({mac:_dlgMac, minutes:mins})}).then(function(r){
+    toast('🎁 已奖励 '+_dlgName+' '+mins+' 分钟'); load();
+  }).catch(function(e){ toast('奖励失败: '+e.message, true); });
+}
+function doRewardCustom() {
+  var v = parseInt(document.getElementById('customMin').value)||0;
+  if (v<=0) { toast('请输入有效分钟数', true); return; }
+  doReward(v);
+}
+function endReward(mac, name) {
+  api('/reward?mac='+encodeURIComponent(mac), {method:'DELETE'}).then(function(){
+    toast('奖励已结束，已恢复阻断'); setTimeout(load, 1200); load();
+  }).catch(function(e){ toast('操作失败: '+e.message, true); });
+}
+
+function tick() {
+  var now = Date.now()/1000;
+  document.querySelectorAll('.badge.b-reward').forEach(function(b){}); // 倒计时由 load() 周期刷新
+}
+load();
+_timer = setInterval(load, 30000); // 30 秒自动刷新，比 LuCI poll 简单直接
+</script>
+</body>
+</html>
