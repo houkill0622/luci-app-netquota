@@ -14,8 +14,33 @@ var callFileExec = rpc.declare({
 	expect: { '': {} }
 });
 
+// 通知封装：优先 LuCI ui.addNotification，不可用时退回 DOM 顶部提示条，绝不让页面崩
+function _notify(msg, type) {
+	try {
+		if (typeof ui !== 'undefined' && typeof ui.addNotification === 'function') {
+			ui.addNotification(null, E('p', msg), type || 'info');
+			return;
+		}
+	} catch (e) { /* fallthrough */ }
+	try {
+		var bar = document.getElementById('netquota-notify');
+		if (!bar) {
+			bar = document.createElement('div');
+			bar.id = 'netquota-notify';
+			bar.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 18px;border-radius:6px;color:#fff;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.3);max-width:90%;text-align:center';
+			document.body.appendChild(bar);
+		}
+		bar.style.background = (type === 'error') ? '#f44336' : '#323232';
+		bar.textContent = msg;
+		bar.style.display = 'block';
+		clearTimeout(bar._t);
+		bar._t = setTimeout(function() { bar.style.display = 'none'; }, 4000);
+	} catch (e) { try { console.warn(msg); } catch (e2) {} }
+}
+
 function netquotad(args) {
-	return callFileExec({ command: '/usr/bin/netquotad-cli', params: args }).then(function(res) {
+	// rpc.declare 的 params 是位置参数：callFileExec(command, params)，必须分开传，包成对象会返回 ubus [2] invalid params
+	return callFileExec('/usr/bin/netquotad-cli', args).then(function(res) {
 		if (res.code !== 0) {
 			throw new Error(['netquotad-cli 退出码 ', res.code, ': ', res.stderr || '未知错误'].join(''));
 		}
@@ -105,9 +130,9 @@ return view.extend({
 		var btnAdd = E('button', { class: 'btn cbi-button cbi-button-add' }, '添加设备');
 		var btnScan = E('button', { class: 'btn cbi-button cbi-button-action' }, '扫描局域网');
 		var btnReset = E('button', { class: 'btn cbi-button cbi-button-apply' }, '今日重置');
-		L.dom.event(btnAdd, 'click', function() { netquotaAddDlg(); });
-		L.dom.event(btnScan, 'click', function() { netquotaScan(); });
-		L.dom.event(btnReset, 'click', function() { netquotaReset(); });
+		btnAdd.addEventListener('click', function() { addDlg(); });
+		btnScan.addEventListener('click', function() { scanLAN(); });
+		btnReset.addEventListener('click', function() { resetDaily(); });
 		var toolbar = E('div', { style: 'margin:0.5em 0;display:flex;gap:0.5em;flex-wrap:wrap' }, [
 			btnAdd, btnScan, btnReset
 		]);
@@ -133,11 +158,11 @@ return view.extend({
 				sel.appendChild(opt);
 			}
 			var btnSave = E('button', { class: 'btn cbi-button cbi-button-apply', style: 'margin-left:0.5em' }, '保存设置');
-			L.dom.event(btnSave, 'click', function() {
+			btnSave.addEventListener('click', function() {
 				uci.set('netquota', 'settings', 'reset_hour', sel.value);
 				uci.save('netquota');
 				uci.commit('netquota').then(function() {
-					ui.addNotification(null, ui.createNotification('已保存，重启 netquotad 生效', 'info'));
+					_notify('已保存，重启 netquotad 生效', 'info');
 				});
 			});
 			settingsSection.appendChild(E('div', { style: 'display:flex;align-items:center;gap:0.5em;margin:0.5em 0' }, [
@@ -198,16 +223,16 @@ function rebuildTable(devices) {
 		if (d.reward_until && d.reward_until > Date.now() / 1000) {
 			var rm = Math.ceil((d.reward_until - Date.now() / 1000) / 60);
 			btns += '<span style="color:#FF9800;font-weight:bold;white-space:nowrap">🎁 剩 ' + rm + ' 分钟</span> ';
-			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaRewardEnd(\'' + d.mac + '\')">结束奖励</button> ';
+			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" data-act="reward-end" data-mac="' + d.mac + '">结束奖励</button> ';
 		} else {
-			btns += '<button class="btn cbi-button cbi-button-apply" style="font-size:0.85em;background:#4CAF50;color:#fff" onclick="netquotaRewardDlg(\'' + d.mac + '\')">🎁 奖励</button> ';
+			btns += '<button class="btn cbi-button cbi-button-apply" style="font-size:0.85em;background:#4CAF50;color:#fff" data-act="reward" data-mac="' + d.mac + '">🎁 奖励</button> ';
 		}
 		if (d.blocked) {
-			btns += '<button class="btn cbi-button cbi-button-action" style="font-size:0.85em" onclick="netquotaAction(\'unblock\',\'' + d.mac + '\',\'' + (d.ip || '') + '\')">解封</button> ';
+			btns += '<button class="btn cbi-button cbi-button-action" style="font-size:0.85em" data-act="unblock" data-mac="' + d.mac + '" data-ip="' + (d.ip || '') + '">解封</button> ';
 		} else if (d.quota > 0 && d.ip) {
-			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" onclick="netquotaAction(\'block\',\'' + d.mac + '\',\'' + d.ip + '\')">阻断</button> ';
+			btns += '<button class="btn cbi-button cbi-button-negative" style="font-size:0.85em" data-act="block" data-mac="' + d.mac + '" data-ip="' + d.ip + '">阻断</button> ';
 		}
-		btns += '<button class="btn cbi-button cbi-button-edit" style="font-size:0.85em" onclick="netquotaAction(\'delete\',\'' + d.mac + '\',\'\')">删除</button>';
+		btns += '<button class="btn cbi-button cbi-button-edit" style="font-size:0.85em" data-act="delete" data-mac="' + d.mac + '">删除</button>';
 
 		html += '<tr class="' + (d.blocked ? 'netquota-blocked' : '') + '">' +
 			'<td>' + (d.name || macFmt(d.mac)) + '</td>' +
@@ -222,22 +247,46 @@ function rebuildTable(devices) {
 	});
 	html += '</tbody></table>';
 	_tblDiv.innerHTML = html;
+	// 事件委托：表容器绑一次，按 data-act 分发（模块作用域内闭包，不依赖 window 全局函数）
+	if (!_tblDiv._delegated) {
+		_tblDiv._delegated = true;
+		_tblDiv.addEventListener('click', function(ev) {
+			var btn = ev.target && ev.target.closest ? ev.target.closest('button[data-act]') : null;
+			if (!btn) return;
+			var act = btn.getAttribute('data-act'), mac = btn.getAttribute('data-mac'), ip = btn.getAttribute('data-ip') || '';
+			if (act === 'block' || act === 'unblock') {
+				netquotad([act, mac, ip]).then(function() { location.reload(); }).catch(function(err) {
+					_notify('操作失败: ' + (err.message || err), 'error');
+				});
+			} else if (act === 'delete') {
+				if (confirm('确认删除设备 ' + macFmt(mac) + ' 吗？')) {
+					netquotad(['delete', mac, '']).then(function() { location.reload(); }).catch(function(err) {
+						_notify('操作失败: ' + (err.message || err), 'error');
+					});
+				}
+			} else if (act === 'reward') {
+				netquotaRewardDlg(mac);
+			} else if (act === 'reward-end') {
+				netquotaRewardEnd(mac);
+			}
+		});
+	}
 }
 
 // 全局函数（供 onclick 调用）
-window.netquotaAction = function(action, mac, ip) {
+var _unusedAction = function(action, mac, ip) {
 	if (action === 'delete') {
 		if (!confirm('确认删除设备 ' + macFmt(mac) + ' 吗？')) return;
 	}
 	netquotad([action, mac, ip]).then(function() {
 		location.reload();
 	}).catch(function(err) {
-		ui.addNotification(null, ui.createNotification('操作失败: ' + (err.message || err), 'error'));
+		_notify('操作失败: ' + (err.message || err), 'error');
 	});
 };
 
 // 奖励时间：临时放行 N 分钟，到点自动恢复阻断
-window.netquotaRewardDlg = function(mac) {
+function netquotaRewardDlg(mac) {
 	var dev = null;
 	(_devs || []).forEach(function(d) { if (d.mac === mac) dev = d; });
 	var devName = dev ? (dev.name || macFmt(mac)) : macFmt(mac);
@@ -257,16 +306,16 @@ window.netquotaRewardDlg = function(mac) {
 
 	var doReward = function(mins) {
 		if (!mins || mins <= 0) {
-			ui.addNotification(null, E('p', '请输入有效的分钟数'), 'error');
+			_notify('请输入有效的分钟数', 'error');
 			return;
 		}
 		ui.hideModal();
 		netquotad(['allow', mac, String(mins)]).then(function(res) {
 			var remain = Math.round((res.remain_seconds || mins * 60) / 60);
-			ui.addNotification(null, E('p', '🎁 已奖励 ' + devName + ' ' + mins + ' 分钟，剩余 ' + remain + ' 分钟后自动恢复阻断'), 'info');
+			_notify('🎁 已奖励 ' + devName + ' ' + mins + ' 分钟，剩余 ' + remain + ' 分钟后自动恢复阻断', 'info');
 			poll.refresh();
 		}).catch(function(err) {
-			ui.addNotification(null, E('p', '奖励失败: ' + (err.message || err)), 'error');
+			_notify('奖励失败: ' + (err.message || err), 'error');
 		});
 	};
 
@@ -287,9 +336,9 @@ window.netquotaRewardDlg = function(mac) {
 };
 
 // 提前结束奖励，立即恢复阻断
-window.netquotaRewardEnd = function(mac) {
+function netquotaRewardEndfunction(mac) {
 	netquotad(['unreward', mac]).then(function() {
-		ui.addNotification(null, E('p', '奖励已结束，已恢复阻断'), 'info');
+		_notify('奖励已结束，已恢复阻断', 'info');
 		poll.refresh();
 	});
 };
@@ -308,7 +357,7 @@ function addDlg() {
 		var mm = { '1 - 连网即计时': '1', '2 - 有流量才计时（推荐）': '2', '3 - 智能模式': '3' };
 		return netquotad(['devices', 'add', ev.mac.toUpperCase(), ev.name, String(parseInt(ev.quota) || 60), mm[ev.mode] || '2']);
 	}).then(function() { location.reload(); }).catch(function(err) {
-		ui.addNotification(null, ui.createNotification('添加失败: ' + (err.message || err), 'error'));
+		_notify('添加失败: ' + (err.message || err), 'error');
 	});
 }
 
@@ -321,7 +370,7 @@ function scanLAN() {
 		(_devs || []).forEach(function(d) { existing[d.mac] = true; });
 		var news = scanned.filter(function(d) { return !existing[d.mac]; });
 		if (news.length === 0) {
-			ui.addNotification(null, ui.createNotification('未发现新设备', 'info'));
+			_notify('未发现新设备', 'info');
 			return;
 		}
 		var html = '<p>发现 ' + news.length + ' 个新设备：</p><table class="table" style="width:100%"><tr><th>设备名</th><th>MAC</th><th>IP</th></tr>';
@@ -337,26 +386,26 @@ function scanLAN() {
 				Promise.all(news.map(function(d) {
 					return netquotad(['devices', 'add', d.mac, d.name || ('设备-' + d.mac.substr(0, 8)), '60', '2']);
 				})).then(function() { location.reload(); }).catch(function(err) {
-					ui.addNotification(null, ui.createNotification('批量添加失败: ' + (err.message || err), 'error'));
+					_notify('批量添加失败: ' + (err.message || err), 'error');
 				});
 			});
 		}, 100);
 	}).catch(function(err) {
 		ui.hideModal();
-		ui.addNotification(null, ui.createNotification('扫描失败: ' + (err.message || err), 'error'));
+		_notify('扫描失败: ' + (err.message || err), 'error');
 	});
 }
 
 function resetDaily() {
 	netquotad(['reset']).then(function() {
-		ui.addNotification(null, ui.createNotification('今日数据已重置', 'info'));
+		_notify('今日数据已重置', 'info');
 	}).catch(function(err) {
-		ui.addNotification(null, ui.createNotification('重置失败: ' + (err.message || err), 'error'));
+		_notify('重置失败: ' + (err.message || err), 'error');
 	});
 }
 
 // 全局函数（供 onclick 调用）
-window.netquotaAddDlg = function() {
+var _unusedAddDlg = function() {
 	var dlg = new ui.Dialog('添加设备', {
 		fields: [
 			{ name: 'mac', label: 'MAC 地址', type: 'text', placeholder: 'AA:BB:CC:DD:EE:FF', mandatory: true },
@@ -370,11 +419,11 @@ window.netquotaAddDlg = function() {
 		var mm = { '1 - 连网即计时': '1', '2 - 有流量才计时（推荐）': '2', '3 - 智能模式': '3' };
 		return netquotad(['devices', 'add', ev.mac.toUpperCase(), ev.name, String(parseInt(ev.quota) || 60), mm[ev.mode] || '2']);
 	}).then(function() { location.reload(); }).catch(function(err) {
-		ui.addNotification(null, ui.createNotification('添加失败: ' + (err.message || err), 'error'));
+		_notify('添加失败: ' + (err.message || err), 'error');
 	});
 };
 
-window.netquotaScan = function() {
+var _unusedScan = function() {
 	var existing = {};
 	(_devs || []).forEach(function(d) { existing[d.mac] = true; });
 	ui.showModal('扫描局域网', '<div class="spinner"></div><p>正在扫描...</p>');
@@ -383,7 +432,7 @@ window.netquotaScan = function() {
 		var scanned = res.devices || [];
 		var news = scanned.filter(function(d) { return !existing[d.mac]; });
 		if (news.length === 0) {
-			ui.addNotification(null, ui.createNotification('未发现新设备', 'info'));
+			_notify('未发现新设备', 'info');
 			return;
 		}
 		var html = '<p>发现 ' + news.length + ' 个新设备：</p><table class="table" style="width:100%"><tr><th>设备名</th><th>MAC</th><th>IP</th></tr>';
@@ -399,30 +448,30 @@ window.netquotaScan = function() {
 				Promise.all(news.map(function(d) {
 					return netquotad(['devices', 'add', d.mac, d.name || ('设备-' + d.mac.substr(0, 8)), '60', '2']);
 				})).then(function() { location.reload(); }).catch(function(err) {
-					ui.addNotification(null, ui.createNotification('批量添加失败: ' + (err.message || err), 'error'));
+					_notify('批量添加失败: ' + (err.message || err), 'error');
 				});
 			});
 		}, 100);
 	}).catch(function(err) {
 		ui.hideModal();
-		ui.addNotification(null, ui.createNotification('扫描失败: ' + (err.message || err), 'error'));
+		_notify('扫描失败: ' + (err.message || err), 'error');
 	});
 };
 
-window.netquotaReset = function() {
+var _unusedReset = function() {
 	netquotad(['reset']).then(function() {
-		ui.addNotification(null, ui.createNotification('今日数据已重置', 'info'));
+		_notify('今日数据已重置', 'info');
 	}).catch(function(err) {
-		ui.addNotification(null, ui.createNotification('重置失败: ' + (err.message || err), 'error'));
+		_notify('重置失败: ' + (err.message || err), 'error');
 	});
 };
 
-window.netquotaSaveSettings = function() {
+var _unusedSaveSettings = function() {
 	var sel = document.querySelector('.cbi-input-select');
 	if (!sel) return;
 	uci.set('netquota', 'settings', 'reset_hour', sel.value);
 	uci.save('netquota');
 	uci.commit('netquota').then(function() {
-		ui.addNotification(null, ui.createNotification('已保存，重启 netquotad 生效', 'info'));
+		_notify('已保存，重启 netquotad 生效', 'info');
 	});
 };

@@ -96,7 +96,7 @@ func (s *RPCServer) handleReward(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().Unix()
 		var rewards []map[string]interface{}
 		for _, d := range s.state.GetAllDevices() {
-			if d.Blocked && d.RewardUntil > now {
+			if d.RewardUntil > now {
 				rewards = append(rewards, map[string]interface{}{
 					"mac": d.MAC, "name": d.Name, "ip": d.IP,
 					"reward_until":   d.RewardUntil,
@@ -179,9 +179,9 @@ func (s *RPCServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		if d.Blocked {
 			blocked++
-			if d.RewardUntil > now {
-				rewards = append(rewards, []interface{}{d.Name, d.RewardUntil - now})
-			}
+		}
+		if d.RewardUntil > now {
+			rewards = append(rewards, []interface{}{d.Name, d.RewardUntil - now})
 		}
 	}
 
