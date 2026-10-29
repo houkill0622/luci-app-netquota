@@ -132,7 +132,7 @@ luci-app-netquota/
 ├── netquotad-cli/               # 命令行工具
 │   └── main.go
 ├── htdocs/                      # LuCI 前端资源
-│   └── luci-static/resources/view/netquota/overview.js
+│   └── luci-static/resources/view/netquota/overview2.js
 ├── root/                        # OpenWrt 包文件
 │   └── etc/
 │       ├── init.d/netquotad     # procd 启动脚本
@@ -143,6 +143,43 @@ luci-app-netquota/
 ├── README.md
 └── LICENSE
 ```
+
+---
+
+### 📱 独立移动端页面（推荐日常使用）
+
+除 LuCI 页面外，插件还提供一个**纯原生单文件网页**（不依赖 LuCI JS API，手机体验更好）：
+
+- **地址**：`http://<路由器IP>/netquota/`（nginx/uhttpd 托管 `/www/netquota/`）
+- **功能**：设备增删改、批量阻断 + 一键全解封、奖励（5/10/20/30 + 自定义 + 结束）、扫描发现新设备一键入库、今日重置、重置时段设置、断网自动降级
+- **鉴权**：API 走同源反代 `/netquota/api/ → 127.0.0.1:9800/api/v1/`，建议在 nginx 层加 token 校验（示例见下），页面首次访问输入口令后存 localStorage
+
+nginx 鉴权示例（`/etc/nginx/conf.d/netquota.locations`）：
+
+```nginx
+location /netquota/api/ {
+    if ($http_x_auth_token != '把这里换成你的口令') {
+        return 401;
+    }
+    proxy_pass http://127.0.0.1:9800/api/v1/;
+    proxy_set_header Host $host;
+}
+location /netquota/ {
+    root /www;
+    index index.html;
+}
+```
+
+> ⚠️ 若不配置反代，页面默认直连 daemon 的 9800 端口（此时 daemon 需监听 TCP 且 CORS 已放开）。9800 端口仅建议内网使用。
+
+### 📊 状态总览
+
+| 设备状态 | 含义 |
+|------|------|
+| ● 在线 | 最近 5 分钟有流量 |
+| ⛔ 已阻断 | 今日配额用完（或手动阻断） |
+| 🎁 放行中 | 处于奖励时间，倒计时结束自动恢复阻断 |
+| ○ 离线 | 超过 5 分钟无流量 |
 
 ---
 

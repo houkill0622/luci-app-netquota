@@ -73,8 +73,8 @@ define Package/luci-app-netquota/install
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-netquota.json $(1)/usr/share/luci/menu.d/
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/netquota
-	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/netquota/overview.js \
-		$(1)/www/luci-static/resources/view/netquota/overview.js
+	$(INSTALL_DATA) ./htdocs/luci-static/resources/view/netquota/overview2.js \
+		$(1)/www/luci-static/resources/view/netquota/overview2.js
 endef
 
 define Package/luci-app-netquota/postinst

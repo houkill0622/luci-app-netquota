@@ -31,3 +31,11 @@ Thumbs.db
 *.bak2
 *.bak3
 /tmp/
+# runtime state / logs / local deploy artifacts
+*.json.state
+netquota-*.locations
+/www/
+# local secrets (token etc.)
+.env
+*.env
+secrets*
